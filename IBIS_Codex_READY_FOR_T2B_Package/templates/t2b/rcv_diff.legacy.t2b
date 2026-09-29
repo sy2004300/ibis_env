@@ -1,0 +1,28 @@
+[IBIS Ver]    5.0
+[File name]   {{MODULE}}_rcv_ron{{RON}}.ibs
+[Date]        DEMO
+[Source]      Akrostar
+[Notes]       Synthetic Codex template: rcv_diff; UNVALIDATED
+[Spice type]  hspice
+[Spice command] hspice
+[Temperature Range] {{TEMP_TYP}} {{TEMP_MIN}} {{TEMP_MAX}}
+[Voltage Range] {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}}
+[Component] {{MODULE}}
+[Spice file] component.sp
+[Diff pin]
+{{PAD_T_ALIAS}} {{PAD_C_ALIAS}} 0.25 0
+[Pin]
+{{PAD_T_ALIAS}} {{PAD_T_ALIAS}} {{PAD_T_ALIAS}} {{MODULE}}_rcv_ron{{RON}}ohm_model_t
+{{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} Power
+{{GND_ALIAS}} {{GND_ALIAS}} {{GND_ALIAS}} Gnd
+{{PAD_C_ALIAS}} {{PAD_C_ALIAS}} {{PAD_C_ALIAS}} {{MODULE}}_rcv_ron{{RON}}ohm_model_c
+[Model] {{MODULE}}_rcv_ron{{RON}}ohm_model_t
+[Model type] Input
+[Polarity] Non_Inverting
+[Model file] corner_rcv_ron{{RON}}_typ.sp corner_rcv_ron{{RON}}_min.sp corner_rcv_ron{{RON}}_max.sp
+[ExtSpiceCmd] ckt_topology.sp
+[Model] {{MODULE}}_rcv_ron{{RON}}ohm_model_c
+[Model type] Input
+[Polarity] Inverting
+[Model file] corner_rcv_ron{{RON}}_typ.sp corner_rcv_ron{{RON}}_min.sp corner_rcv_ron{{RON}}_max.sp
+[ExtSpiceCmd] ckt_topology.sp

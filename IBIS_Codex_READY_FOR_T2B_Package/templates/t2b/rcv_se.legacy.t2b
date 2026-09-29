@@ -1,0 +1,19 @@
+[IBIS Ver]    5.0
+[File name]   {{MODULE}}_rcv_ron{{RON}}.ibs
+[Date]        DEMO
+[Source]      Akrostar
+[Notes]       Synthetic Codex template: rcv_se; UNVALIDATED
+[Spice type]  hspice
+[Spice command] hspice
+[Temperature Range] {{TEMP_TYP}} {{TEMP_MIN}} {{TEMP_MAX}}
+[Voltage Range] {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}}
+[Component] {{MODULE}}
+[Spice file] component.sp
+[Pin]
+{{PAD_ALIAS}} {{PAD_ALIAS}} {{PAD_ALIAS}} {{MODULE}}_rcv_ron{{RON}}ohm_model
+{{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} Power
+{{GND_ALIAS}} {{GND_ALIAS}} {{GND_ALIAS}} Gnd
+[Model] {{MODULE}}_rcv_ron{{RON}}ohm_model
+[Model type] Input
+[Model file] corner_rcv_ron{{RON}}_typ.sp corner_rcv_ron{{RON}}_min.sp corner_rcv_ron{{RON}}_max.sp
+[ExtSpiceCmd] ckt_topology.sp
