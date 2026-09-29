@@ -1,28 +1,55 @@
-[IBIS Ver]    5.0
-[File name]   {{MODULE}}_rcv_ron{{RON}}.ibs
-[Date]        DEMO
-[Source]      Akrostar
-[Notes]       Synthetic Codex template: rcv_diff; UNVALIDATED
-[Spice type]  hspice
-[Spice command] hspice
+[IBIS Ver] 5.0
+[File name] {{TOP_SUBCKT}}_rcv_ron{{RON}}.ibs
+[Date] {{DATE_YYYY/MM}}
+[Source] Akrostar
+[Notes] Akrostar {{TOP_SUBCKT}}
+[Copyright] Akrostar
+[Spice type] {{SPICE_TYPE}}
+[Spice command] {{SPICE_COMMAND}}
+[Iterate]
+[Waveform nPoints] 1000
+[C_comp View] C_comp_view
+[Waveform Windowing] Time 1n 0.01n 0.01n 0.01n
 [Temperature Range] {{TEMP_TYP}} {{TEMP_MIN}} {{TEMP_MAX}}
-[Voltage Range] {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}}
-[Component] {{MODULE}}
+[Voltage Range] {{VOLT_TYP}} {{VOLT_MIN}} {{VOLT_MAX}}
+[R_pkg] 0 0 0
+[L_pkg] 0 0 0
+[C_pkg] 0 0 0
+[Rload] 50 ohms
+[Sim time] 1ns
+[Sim delay] 0ns 0ns 0 0.01n
+[Vil] 0 0 0
+[Vih] {{VIH_TYP}} {{VIH_MIN}} {{VIH_MAX}}
+[Tr] {{TR_TYP}} {{TR_MIN}} {{TR_MAX}}
+[Tf] {{TF_TYP}} {{TF_MIN}} {{TF_MAX}}
+[Component] {{TOP_SUBCKT}}
+[Manufacturer] Akrostar Co. Ltd.
 [Spice file] component.sp
 [Diff pin]
-{{PAD_T_ALIAS}} {{PAD_C_ALIAS}} 0.25 0
+ipadt ipadc 0.25 0
+
 [Pin]
-{{PAD_T_ALIAS}} {{PAD_T_ALIAS}} {{PAD_T_ALIAS}} {{MODULE}}_rcv_ron{{RON}}ohm_model_t
-{{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} Power
-{{GND_ALIAS}} {{GND_ALIAS}} {{GND_ALIAS}} Gnd
-{{PAD_C_ALIAS}} {{PAD_C_ALIAS}} {{PAD_C_ALIAS}} {{MODULE}}_rcv_ron{{RON}}ohm_model_c
-[Model] {{MODULE}}_rcv_ron{{RON}}ohm_model_t
+ipadt ipadt ipadt {{TOP_SUBCKT}}_rcv_ron{{RON}}_model_t
+vddq vddq vddq Power
+vss vss vss Gnd
+ipadc ipadc ipadc {{TOP_SUBCKT}}_rcv_ron{{RON}}_model_c
+
+[Model] {{TOP_SUBCKT}}_rcv_ron{{RON}}_model_t
 [Model type] Input
-[Polarity] Non_Inverting
+[Polarity] Non-Inverting
+[Vinh] {{VINH_TYP}} {{VINH_MIN}} {{VINH_MAX}}
+[Vinl] {{VINL_TYP}} {{VINL_MIN}} {{VINL_MAX}}
 [Model file] corner_rcv_ron{{RON}}_typ.sp corner_rcv_ron{{RON}}_min.sp corner_rcv_ron{{RON}}_max.sp
 [ExtSpiceCmd] ckt_topology.sp
-[Model] {{MODULE}}_rcv_ron{{RON}}ohm_model_c
+
+[Model] {{TOP_SUBCKT}}_rcv_ron{{RON}}_model_c
 [Model type] Input
 [Polarity] Inverting
+[Vinh] {{VINH_TYP}} {{VINH_MIN}} {{VINH_MAX}}
+[Vinl] {{VINL_TYP}} {{VINL_MIN}} {{VINL_MAX}}
 [Model file] corner_rcv_ron{{RON}}_typ.sp corner_rcv_ron{{RON}}_min.sp corner_rcv_ron{{RON}}_max.sp
 [ExtSpiceCmd] ckt_topology.sp
+
+[Model] dummy
+[NoModel]
+[Model type] Input
