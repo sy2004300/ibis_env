@@ -1,0 +1,9 @@
+[project]
+name = "ibis-auto"
+version = "0.1.0"
+description = "IBIS READY_FOR_T2B case generator"
+requires-python = ">=3.10"
+
+[project.scripts]
+ibis-auto = "ibis_auto.cli:main"
+
