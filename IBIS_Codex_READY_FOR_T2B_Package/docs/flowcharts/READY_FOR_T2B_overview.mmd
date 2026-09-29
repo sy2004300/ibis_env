@@ -1,0 +1,22 @@
+flowchart TD
+A[Config/MSI/SPF/Template Root] --> B[Input Discovery]
+B --> C[Per-Module Normalize + Validate]
+C --> D[Canonical Module Model]
+D --> E[Case Matrix: Module × Direction × Impedance]
+E --> F[Resolve Template/Model/Effective Values]
+F --> G[Generate component.sp]
+F --> H[Generate ckt_topology.sp]
+F --> I[Generate MAX/TYP/MIN corner SP]
+F --> J[Copy _t2b_config.ini + Instantiate .t2b]
+G --> K[Structural Validation]
+H --> K
+I --> K
+J --> K
+K --> L{Golden exists?}
+L -- Yes --> M[Golden Compare]
+L -- No --> N[UNVALIDATED]
+M --> O[PASS/FAIL]
+N --> P[Generation PASS]
+O --> Q[Module/Project Summary]
+P --> Q
+Q --> R[READY_FOR_T2B]

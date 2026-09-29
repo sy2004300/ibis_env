@@ -1,0 +1,42 @@
+{
+  "case_001": {
+    "module": "demo_phy_io_diff",
+    "direction": "DRV",
+    "template": "drv_diff",
+    "impedance_ohm": 30,
+    "corners": [
+      "MAX",
+      "TYP",
+      "MIN"
+    ],
+    "calibration": {
+      "MAX": "8'h26",
+      "TYP": "8'h34",
+      "MIN": "8'h6A"
+    }
+  },
+  "impedance_min_code": {
+    "240": "0001",
+    "120": "0011",
+    "80": "0101",
+    "60": "0111",
+    "48": "1001",
+    "40": "1011",
+    "34": "1101",
+    "30": "1111"
+  },
+  "direction_normalization": [
+    "I",
+    "i",
+    "Input",
+    "INPUT",
+    "input"
+  ],
+  "invalid_default_values": [
+    "X",
+    "Z",
+    "-",
+    "",
+    null
+  ]
+}

@@ -1,0 +1,9 @@
+* Synthetic SPF fixture: MIN / rcworst
+* Not for real electrical simulation.
+.SUBCKT demo_phy_io_diff VDD VDDQ VSS TXOE TXDAT IOPADT IOPADC reg_txslice_pd[3]
++ reg_txslice_pd[2] reg_txslice_pd[1] reg_txslice_pd[0] reg_txslice_pu[3] reg_txslice_pu[2] reg_txslice_pu[1] reg_txslice_pu[0] txzqcal_pd[7]
++ txzqcal_pd[6] txzqcal_pd[5] txzqcal_pd[4] txzqcal_pd[3] txzqcal_pd[2] txzqcal_pd[1] txzqcal_pd[0] txzqcal_pu[7]
++ txzqcal_pu[6] txzqcal_pu[5] txzqcal_pu[4] txzqcal_pu[3] txzqcal_pu[2] txzqcal_pu[1] txzqcal_pu[0] reg_txffe[3]
++ reg_txffe[2] reg_txffe[1] reg_txffe[0]
+* minimal body intentionally omitted
+.ENDS demo_phy_io_diff

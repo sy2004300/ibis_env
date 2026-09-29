@@ -1,0 +1,70 @@
+[IBIS Ver]    5.0
+[File name]   {{MODULE}}_drv_ron{{RON}}.ibs
+[Date]        DEMO
+[Source]      Akrostar
+[Notes]       Synthetic Codex template: drv_diff
+[Copyright]   Demo
+[Spice type]  spectre
+[Spice command] spectre +preset=mx +spice +mt=6
+[Iterate]
+[Waveform nPoints] 1000
+[C_Comp View] C_comp_view
+[Waveform Windowing] Time 1n 0.01n 0.01n 0.01n
+[Temperature Range] {{TEMP_TYP}} {{TEMP_MIN}} {{TEMP_MAX}}
+[Voltage Range] {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}}
+[R_pkg] 0 0 0
+[L_pkg] 0 0 0
+[C_pkg] 0 0 0
+[Rload] 50 ohms
+[Sim time] 1ns
+[Sim delay] 0ns 0ns 0 0.01n
+[Vil] 0 0 0
+[Vih] 0.75 0.6975 0.825
+[Tr] 20ps 20ps 20ps
+[Tf] 20ps 20ps 20ps
+[Component] {{MODULE}}
+[Manufacturer] Demo Co. Ltd.
+[Spice file] component.sp
+[Diff pin]
+{{PAD_T_ALIAS}} {{PAD_C_ALIAS}} 0.25 0
+[Pin]
+{{PAD_T_ALIAS}} {{PAD_T_ALIAS}} {{PAD_T_ALIAS}} {{MODULE}}_drv_ron{{RON}}ohm_model_t
+-> {{TXDAT_ALIAS}} {{TXOE_ALIAS}}
+{{TXDAT_ALIAS}} {{TXDAT_ALIAS}} {{TXDAT_ALIAS}} dummy
+{{TXOE_ALIAS}} {{TXOE_ALIAS}} {{TXOE_ALIAS}} dummy
+{{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} {{PORT_POWER_ALIAS}} Power
+{{GND_ALIAS}} {{GND_ALIAS}} {{GND_ALIAS}} Gnd
+{{PAD_C_ALIAS}} {{PAD_C_ALIAS}} {{PAD_C_ALIAS}} {{MODULE}}_drv_ron{{RON}}ohm_model_c
+-> {{TXDAT_ALIAS}} {{TXOE_ALIAS}}
+
+[Model] {{MODULE}}_drv_ron{{RON}}ohm_model_t
+[Model type] I/O
+[Polarity] Non_Inverting
+[Enable] Active-High
+[Vinh] 0.175 0.168 0.193
+[Vinl] 0.075 0.068 0.093
+[Vmeas] 0.125 0.118 0.143
+[Model file] corner_drv_ron{{RON}}_typ.sp corner_drv_ron{{RON}}_min.sp corner_drv_ron{{RON}}_max.sp
+[ExtSpiceCmd] ckt_topology.sp
+[Rising Waveform] 50 0 0 0 NA NA NA NA NA
+[Rising Waveform] 50 {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}} NA NA NA NA NA
+[Falling Waveform] 50 0 0 0 NA NA NA NA NA
+[Falling Waveform] 50 {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}} NA NA NA NA NA
+
+[Model] {{MODULE}}_drv_ron{{RON}}ohm_model_c
+[Model type] I/O
+[Polarity] Inverting
+[Enable] Active-High
+[Vinh] 0.175 0.168 0.193
+[Vinl] 0.075 0.068 0.093
+[Vmeas] 0.125 0.118 0.143
+[Model file] corner_drv_ron{{RON}}_typ.sp corner_drv_ron{{RON}}_min.sp corner_drv_ron{{RON}}_max.sp
+[ExtSpiceCmd] ckt_topology.sp
+[Rising Waveform] 50 0 0 0 NA NA NA NA NA
+[Rising Waveform] 50 {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}} NA NA NA NA NA
+[Falling Waveform] 50 0 0 0 NA NA NA NA NA
+[Falling Waveform] 50 {{PORTV_TYP}} {{PORTV_MIN}} {{PORTV_MAX}} NA NA NA NA NA
+
+[Model] dummy
+[NoModel]
+[Model type] Input
