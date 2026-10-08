@@ -35,6 +35,10 @@ class ModulePlan:
     name: str
     generate_type: str
     impedances: list[int]
+    ibis_io_voltage_domain: str
+    ibis_vih_voltage_domain: str
+    tr: dict[str, str]
+    tf: dict[str, str]
 
 
 @dataclass
@@ -50,4 +54,6 @@ class Config:
     overrides: list[dict[str, str]]
     attribute_overrides: list[dict[str, str]]
     msi_mappings: dict[str, tuple[str, str, str]]
+    spice_type: str = "spectre"
+    spice_command: str = "spectre +preset=mx +spice +mt=4"
 

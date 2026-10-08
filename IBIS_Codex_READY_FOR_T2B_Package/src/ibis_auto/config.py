@@ -52,12 +52,51 @@ def parse_config(path: Path, root_overrides: dict[str, Path] | None = None) -> C
 
     start, end = section("2.")
     header = rows[start + 1]
+    header_indexes = {
+        re.sub(r"\s+", " ", _cell(header, i)).casefold(): i
+        for i in range(len(header))
+        if _cell(header, i)
+    }
+    required_headers = [
+        "Module",
+        "Generate Type",
+        "IBIS IO Voltage Domain",
+        "IBIS VIH Voltage Domain",
+        "Tr MAX",
+        "Tr TYP",
+        "Tr MIN",
+        "Tf MAX",
+        "Tf TYP",
+        "Tf MIN",
+    ]
+    missing_headers = [name for name in required_headers if name.casefold() not in header_indexes]
+    if missing_headers:
+        raise IbisError("CONFIG_HEADER_MISSING", f"配置 Section 2 缺少列：{', '.join(missing_headers)}")
+
+    def module_column(name: str) -> int:
+        return header_indexes[name.casefold()]
+
+    impedance_columns = []
+    for i, name in enumerate(header):
+        match = re.fullmatch(r"\s*(\d+)\s*(?:Ω|ohm)\s*", name, re.I)
+        if match:
+            impedance_columns.append((i, int(match.group(1))))
+
     modules = []
     for row in rows[start + 2:end]:
-        if not _cell(row, 0):
+        module = _cell(row, module_column("Module"))
+        if not module:
             continue
-        impedances = [int(re.sub(r"\D", "", _cell(header, i))) for i in range(2, len(header)) if _cell(row, i).upper() == "Y"]
-        modules.append(ModulePlan(_cell(row, 0), _cell(row, 1).upper(), impedances))
+        impedances = [value for i, value in impedance_columns if _cell(row, i).upper() == "Y"]
+        modules.append(ModulePlan(
+            module,
+            _cell(row, module_column("Generate Type")).upper(),
+            impedances,
+            _cell(row, module_column("IBIS IO Voltage Domain")),
+            _cell(row, module_column("IBIS VIH Voltage Domain")),
+            {corner: _cell(row, module_column(f"Tr {corner}")) for corner in ("MAX", "TYP", "MIN")},
+            {corner: _cell(row, module_column(f"Tf {corner}")) for corner in ("MAX", "TYP", "MIN")},
+        ))
 
     corners = {name: Corner(name, "", "", "") for name in ("MAX", "TYP", "MIN")}
     start, end = section("3.1")
