@@ -1,14 +1,14 @@
-[IBIS Ver]    5.0
-[File name]   demo_phy_io_diff_drv_ron30.ibs
-[Date]        DEMO
-[Source]      Akrostar
-[Notes]       Synthetic Codex template: drv_diff
-[Copyright]   Demo
-[Spice type]  spectre
-[Spice command] spectre +preset=mx +spice +mt=6
+[IBIS Ver] 5.0
+[File name] demo_phy_io_diff_drv_ron30.ibs
+[Date] 2026/10
+[Source] Akrostar
+[Notes] Akrostar demo_phy_io_diff
+[Copyright] Akrostar
+[Spice type] spectre
+[Spice command] spectre +preset=mx +spice +mt=4
 [Iterate]
 [Waveform nPoints] 1000
-[C_Comp View] C_comp_view
+[C_comp View] C_comp_view
 [Waveform Windowing] Time 1n 0.01n 0.01n 0.01n
 [Temperature Range] 25 -40 125
 [Voltage Range] 0.5 0.47 0.57
@@ -20,50 +20,51 @@
 [Sim delay] 0ns 0ns 0 0.01n
 [Vil] 0 0 0
 [Vih] 0.75 0.6975 0.825
-[Tr] 20ps 20ps 20ps
-[Tf] 20ps 20ps 20ps
+[Tr] 20p 20p 20p
+[Tf] 20p 20p 20p
 [Component] demo_phy_io_diff
-[Manufacturer] Demo Co. Ltd.
+[Manufacturer] Akrostar Co. Ltd.
 [Spice file] component.sp
 [Diff pin]
 ipadt ipadc 0.25 0
+
 [Pin]
-ipadt ipadt ipadt demo_phy_io_diff_drv_ron30ohm_model_t
+ipadt ipadt ipadt demo_phy_io_diff_drv_ron30_model_t
 -> txdat txoe
 txdat txdat txdat dummy
 txoe txoe txoe dummy
 vddq vddq vddq Power
 vss vss vss Gnd
-ipadc ipadc ipadc demo_phy_io_diff_drv_ron30ohm_model_c
+ipadc ipadc ipadc demo_phy_io_diff_drv_ron30_model_c
 -> txdat txoe
 
-[Model] demo_phy_io_diff_drv_ron30ohm_model_t
+[Model] demo_phy_io_diff_drv_ron30_model_t
 [Model type] I/O
-[Polarity] Non_Inverting
+[Polarity] Non-Inverting
 [Enable] Active-High
-[Vinh] 0.175 0.168 0.193
-[Vinl] 0.075 0.068 0.093
-[Vmeas] 0.125 0.118 0.143
+[Vinh] 0.175 0.1675 0.1925
+[Vinl] 0.075 0.0675 0.0925
+[Vmeas] 0.125 0.1175 0.1425
 [Model file] corner_drv_ron30_typ.sp corner_drv_ron30_min.sp corner_drv_ron30_max.sp
 [ExtSpiceCmd] ckt_topology.sp
-[Rising Waveform] 50 0 0 0 NA NA NA NA NA
-[Rising Waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
-[Falling Waveform] 50 0 0 0 NA NA NA NA NA
-[Falling Waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
+[Rising waveform] 50 0 0 0 NA NA NA NA NA
+[Rising waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
+[Falling waveform] 50 0 0 0 NA NA NA NA NA
+[Falling waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
 
-[Model] demo_phy_io_diff_drv_ron30ohm_model_c
+[Model] demo_phy_io_diff_drv_ron30_model_c
 [Model type] I/O
 [Polarity] Inverting
 [Enable] Active-High
-[Vinh] 0.175 0.168 0.193
-[Vinl] 0.075 0.068 0.093
-[Vmeas] 0.125 0.118 0.143
+[Vinh] 0.175 0.1675 0.1925
+[Vinl] 0.075 0.0675 0.0925
+[Vmeas] 0.125 0.1175 0.1425
 [Model file] corner_drv_ron30_typ.sp corner_drv_ron30_min.sp corner_drv_ron30_max.sp
 [ExtSpiceCmd] ckt_topology.sp
-[Rising Waveform] 50 0 0 0 NA NA NA NA NA
-[Rising Waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
-[Falling Waveform] 50 0 0 0 NA NA NA NA NA
-[Falling Waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
+[Rising waveform] 50 0 0 0 NA NA NA NA NA
+[Rising waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
+[Falling waveform] 50 0 0 0 NA NA NA NA NA
+[Falling waveform] 50 0.5 0.47 0.57 NA NA NA NA NA
 
 [Model] dummy
 [NoModel]

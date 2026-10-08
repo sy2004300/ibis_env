@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 import shutil
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from .errors import IbisError
-from .model import Config, Signal
+from .model import Config, ModulePlan, Signal
 from .values import impedance_map, parse_logic, signal_bits
 
 SECTIONS = {"FF": ("rbd_f", "cap_f", "mos_var_ff"), "TT": ("rbd_t", "cap_t", "mos_var_tt"), "SS": ("rbd_s", "cap_s", "mos_var_ss")}
@@ -14,6 +16,12 @@ SECTIONS = {"FF": ("rbd_f", "cap_f", "mos_var_ff"), "TT": ("rbd_t", "cap_t", "mo
 def _fmt_number(value: str) -> str:
     try: return f"{float(value):g}"
     except ValueError: return value
+
+
+def _fmt_decimal(value: Decimal) -> str:
+    if value == 0:
+        return "0"
+    return format(value.normalize(), "f")
 
 
 def _alias(config: Config, module: str, direction: str, pin: str) -> str:
@@ -67,25 +75,91 @@ def _topology(config: Config, module: str, direction: str, top: str, pins: list[
     return "\n".join(lines) + "\n"
 
 
-def _template(config: Config, module: str, direction: str, impedance: int, template_type: str) -> tuple[str, str]:
+def _domain_values(config: Config, requested: str, label: str, module: str) -> dict[str, Decimal]:
+    if not requested:
+        raise IbisError("T2B_FIELD_MISSING", f"模块 {module} 缺少 {label}", "CASE")
+    domain = next((name for name in config.voltage_order if name.casefold() == requested.casefold()), None)
+    if domain is None:
+        raise IbisError("IBIS_VOLTAGE_DOMAIN_INVALID", f"模块 {module} 的 {label} {requested!r} 未在 Voltage Domain 中定义", "CASE")
+    values = {}
+    for corner_name in ("MAX", "TYP", "MIN"):
+        raw = config.corners[corner_name].voltages.get(domain, "")
+        if not raw:
+            raise IbisError("T2B_FIELD_MISSING", f"模块 {module} 的 {label} 在 {corner_name} 缺少电压值", "CASE")
+        try:
+            values[corner_name] = Decimal(raw)
+        except InvalidOperation as exc:
+            raise IbisError("T2B_VALUE_INVALID", f"模块 {module} 的 {label} 在 {corner_name} 电压值非法：{raw!r}", "CASE") from exc
+    return values
+
+
+def _module_corner_values(plan: ModulePlan, attribute: str, label: str) -> dict[str, str]:
+    source = getattr(plan, attribute, None)
+    if not isinstance(source, dict):
+        raise IbisError("T2B_FIELD_MISSING", f"模块 {plan.name} 缺少 {label} Corner 配置", "CASE")
+    values = {}
+    for corner_name in ("MAX", "TYP", "MIN"):
+        value = str(source.get(corner_name, "")).strip()
+        if not value:
+            raise IbisError("T2B_FIELD_MISSING", f"模块 {plan.name} 缺少 {label} {corner_name}", "CASE")
+        values[corner_name] = value
+    return values
+
+
+def _validate_alias_sources(config: Config, module: str, direction: str, pins: list[str]) -> None:
+    pinset = {pin.casefold() for pin in pins}
+    missing = []
+    for (mapped_module, scope, original), _alias_name in config.aliases.items():
+        if mapped_module.casefold() != module.casefold() or scope.upper() not in {direction, "BOTH"}:
+            continue
+        if original.casefold() not in pinset:
+            missing.append(original)
+    if missing:
+        names = ", ".join(dict.fromkeys(missing))
+        raise IbisError("IBIS_PIN_SOURCE_MISSING", f"模块 {module} 的 Config Original Pin 不存在于 SPF Top .SUBCKT：{names}", "CASE")
+
+
+def _template(config: Config, plan: ModulePlan, direction: str, impedance: int, template_type: str, top: str) -> tuple[str, str]:
     path = config.roots["template"] / f"{template_type}.t2b"
     if not path.is_file(): raise IbisError("TEMPLATE_MISSING", f"T2B 模板缺失：{path}")
     text = path.read_text()
-    spice = re.search(r"^\[Spice type\]\s+(\S+)", text, re.M | re.I)
-    if not spice or spice.group(1).lower() not in {"spectre", "hspice"}: raise IbisError("SPICE_TYPE_INVALID", f"模板 Spice type 缺失或不支持：{path}", "CASE")
-    v = {name: config.corners[name].voltages for name in config.corners}
+
+    io_values = _domain_values(config, plan.ibis_io_voltage_domain, "IBIS IO Voltage Domain", plan.name)
+    vih_values = _domain_values(config, plan.ibis_vih_voltage_domain, "IBIS VIH Voltage Domain", plan.name)
+    tr_values = _module_corner_values(plan, "tr", "Tr")
+    tf_values = _module_corner_values(plan, "tf", "Tf")
+    spice_type = str(config.spice_type).strip()
+    spice_command = str(config.spice_command).strip()
+    if not spice_type:
+        raise IbisError("T2B_FIELD_MISSING", "项目缺少 SPICE_TYPE", "CASE")
+    if not spice_command:
+        raise IbisError("T2B_FIELD_MISSING", "项目缺少 SPICE_COMMAND", "CASE")
+
     values = {
-        "MODULE": module, "RON": str(impedance),
+        "TOP_SUBCKT": top,
+        "RON": str(impedance),
+        "DATE_YYYY/MM": date.today().strftime("%Y/%m"),
+        "SPICE_TYPE": spice_type,
+        "SPICE_COMMAND": spice_command,
         "TEMP_TYP": config.corners["TYP"].temperature, "TEMP_MIN": config.corners["MIN"].temperature, "TEMP_MAX": config.corners["MAX"].temperature,
-        "PORTV_TYP": _fmt_number(v["TYP"].get("VDDQ", next(iter(v["TYP"].values())))),
-        "PORTV_MIN": _fmt_number(v["MIN"].get("VDDQ", next(iter(v["MIN"].values())))),
-        "PORTV_MAX": _fmt_number(v["MAX"].get("VDDQ", next(iter(v["MAX"].values())))),
     }
-    pin_vars = {"PAD_T_ALIAS": "IOPADT", "PAD_C_ALIAS": "IOPADC", "PAD_ALIAS": "IOPAD", "TXDAT_ALIAS": "TXDAT", "TXOE_ALIAS": "TXOE", "PORT_POWER_ALIAS": "VDDQ", "GND_ALIAS": "VSS"}
-    values.update({key: _alias(config, module, direction, pin) for key, pin in pin_vars.items()})
+    for corner_name in ("TYP", "MIN", "MAX"):
+        vmeas = io_values[corner_name] / Decimal(4)
+        values.update({
+            f"VOLT_{corner_name}": _fmt_decimal(io_values[corner_name]),
+            f"VIH_{corner_name}": _fmt_decimal(vih_values[corner_name]),
+            f"TR_{corner_name}": tr_values[corner_name],
+            f"TF_{corner_name}": tf_values[corner_name],
+            f"VMEAS_{corner_name}": _fmt_decimal(vmeas),
+            f"VINH_{corner_name}": _fmt_decimal(vmeas + Decimal("0.05")),
+            f"VINL_{corner_name}": _fmt_decimal(vmeas - Decimal("0.05")),
+        })
     for key, value in values.items(): text = text.replace("{{" + key + "}}", value)
     if re.search(r"{{[^}]+}}", text): raise IbisError("TEMPLATE_PLACEHOLDER_UNKNOWN", f"模板存在未解析占位符：{path}", "CASE")
-    return text, spice.group(1).lower()
+    spice = re.search(r"^\[Spice type\]\s+(\S+)", text, re.M | re.I)
+    if not spice or spice.group(1).casefold() not in {"spectre", "hspice"}:
+        raise IbisError("SPICE_TYPE_INVALID", f"模板 Spice type 缺失或不支持：{path}", "CASE")
+    return text, spice.group(1).casefold()
 
 
 def _corner(config: Config, module: str, direction: str, impedance: int, corner_name: str, signals: list[Signal], aliases: set[str], spice: str) -> str:
@@ -154,10 +228,12 @@ def _corner(config: Config, module: str, direction: str, impedance: int, corner_
     return "\n".join(lines) + "\n"
 
 
-def generate_case(config: Config, output: Path, module: str, direction: str, impedance: int, top: str, pins: list[str], signals: list[Signal]) -> Path:
+def generate_case(config: Config, output: Path, plan: ModulePlan, direction: str, impedance: int, top: str, pins: list[str], signals: list[Signal]) -> Path:
+    module = plan.name
     template_type = config.templates.get((module, direction))
     if not template_type: raise IbisError("TEMPLATE_MAPPING_MISSING", f"模块 {module} {direction} 缺少 T2B Template Mapping", "CASE")
-    rendered, spice = _template(config, module, direction, impedance, template_type)
+    _validate_alias_sources(config, module, direction, pins)
+    rendered, spice = _template(config, plan, direction, impedance, template_type, top)
     case = output / module / direction.lower() / f"{impedance}ohm_ibis"
     case.mkdir(parents=True, exist_ok=True)
     global_config = config.roots["template"] / "_t2b_config.ini"

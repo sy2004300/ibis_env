@@ -63,7 +63,7 @@ def generate(config_path: Path, output: Path, root_overrides: dict[str, Path] | 
             for impedance in plan.impedances:
                 key = f"{plan.name}/{direction}/{impedance}ohm"
                 try:
-                    case = generate_case(config, output, plan.name, direction, impedance, top, pins, signals)
+                    case = generate_case(config, output, plan, direction, impedance, top, pins, signals)
                     golden = config_path.resolve().parents[2] / "golden" / plan.name / direction.lower() / f"{impedance}ohm_ibis"
                     status, validation = validate_case(case, golden, config.roots["model"], config.roots["spf"])
                     results.append(CaseResult(key, status, f"{validation}；{case}"))

@@ -183,7 +183,11 @@ class RobustnessTests(unittest.TestCase):
         (self.fx.root / "inputs/models/spectre/rbd.lib").unlink(); self.assert_case_error("MODEL_FILE_MISSING")
 
     def test_34_spice_type_unsupported(self):
-        path = self.fx.root / "templates/t2b/drv_diff.t2b"; path.write_text(path.read_text().replace("[Spice type]  spectre", "[Spice type]  xyce")); self.assert_case_error("SPICE_TYPE_INVALID")
+        path = self.fx.root / "templates/t2b/drv_diff.t2b"
+        text = path.read_text()
+        self.assertIn("{{SPICE_TYPE}}", text)
+        path.write_text(text.replace("{{SPICE_TYPE}}", "xyce"))
+        self.assert_case_error("SPICE_TYPE_INVALID")
 
     def test_35_topology_preserves_spf_order(self):
         self.fx.run(); topology = (self.fx.case() / "ckt_topology.sp").read_text(); self.assertLess(topology.index("VDD"), topology.index("vddq")); self.assertLess(topology.index("txoe"), topology.index("txdat"))
