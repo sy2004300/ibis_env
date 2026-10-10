@@ -2,6 +2,7 @@
 
 from .controller import ProjectController
 from .project_store import ProjectStore
+from .runtime import APP_VERSION
 
-__all__ = ["ProjectController", "ProjectStore"]
-__version__ = "1.0.0-phase1"
+__all__ = ["APP_VERSION", "ProjectController", "ProjectStore"]
+__version__ = APP_VERSION

@@ -1,37 +1,168 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import tkinter as tk
 from pathlib import Path
+from typing import Any
 
 from .controller import ProjectController
+from .errors import ResourceError, UIProjectError
+from .excel_importer import ExcelImporter
+from .logging_utils import close_file_logging, configure_file_logging, logger
 from .project_store import ProjectStore
+from .runtime import ResourceResolver, app_metadata
+from .source_preview import preview_msi, preview_spf
+from .template_service import TemplateResourceService
+from .theme import configure_process_dpi_awareness
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Phase 1）")
-    result.add_argument("--workspace", type=Path, help="项目数据 workspace；默认位于软件目录下")
-    result.add_argument("--check", action="store_true", help="仅执行无 DISPLAY 的模块/存储初始化检查")
-    result.add_argument("--smoke-test", action="store_true", help="在可用 DISPLAY 上创建并自动关闭真实窗口")
+    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Phase 1.1）")
+    result.add_argument("--workspace", type=Path, help="项目数据 Workspace；默认使用当前系统的用户数据目录")
+    result.add_argument("--check", action="store_true", help="执行不创建窗口的安装、资源和 Config 初始化检查")
+    result.add_argument("--check-report", type=Path, help="将 --check 结果写入 JSON，供打包验收使用")
+    result.add_argument("--smoke-test", action="store_true", help="创建真实 Tk 窗口并自动关闭，用于 GUI 冒烟测试")
     return result
+
+
+def _write_report(path: Path | None, payload: dict[str, Any]) -> None:
+    if path is None:
+        return
+    target = path.expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _console_write(message: str, error: bool = False) -> None:
+    """Write only when a console stream exists (PyInstaller windowed sets it to None)."""
+    stream = sys.stderr if error else sys.stdout
+    if stream is not None:
+        try:
+            print(message, file=stream)
+        except (OSError, UnicodeError):
+            return
+
+
+def headless_check(store: ProjectStore, resolver: ResourceResolver) -> dict[str, Any]:
+    """Exercise packaged resources and data services without creating a Tk root."""
+    store.ensure_ready()
+    resolver.validate()
+    project = ExcelImporter().import_project(resolver.demo_config, "Bundled Demo Check")
+    invalid_roots = {
+        name: value
+        for name, value in project.config["roots"].items()
+        if not Path(str(value)).is_dir()
+    }
+    if invalid_roots:
+        detail = "、".join(f"{name}={value}" for name, value in invalid_roots.items())
+        raise ResourceError("BUNDLED_DEMO_ROOT_INVALID", f"内置 Demo 的资源路径无效：{detail}")
+    templates = TemplateResourceService(resolver).list_templates(project.config)
+    msi = preview_msi(project.config)
+    spf = preview_spf(project.config)
+    source_errors = [item.message for item in msi.modules if item.status == "ERROR"]
+    source_errors.extend(item.message for item in spf.matches if item.status == "ERROR")
+    if source_errors:
+        raise ResourceError("BUNDLED_DEMO_SOURCE_PREVIEW_FAILED", f"内置 Demo 的 MSI/SPF 预览失败：{'；'.join(source_errors)}")
+    metadata = app_metadata()
+    return {
+        "status": "PASS",
+        "mode": "HEADLESS",
+        "gui_window_created": False,
+        "app_version": metadata.version,
+        "git_commit": metadata.git_commit,
+        "platform": metadata.platform,
+        "frozen": metadata.frozen,
+        "workspace": str(store.workspace),
+        "resource_root": str(resolver.root),
+        "template_files": sorted(path.name for path in resolver.template_root.iterdir() if path.is_file()),
+        "resolved_template_files": [item.filename for item in templates],
+        "demo_modules": [module["name"] for module in project.config["modules"]],
+        "msi_files": len(msi.files),
+        "spf_matches": len(spf.matches),
+        "project_schema_version": project.schema_version,
+    }
+
+
+def _show_startup_error(message: str) -> None:
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        from tkinter import messagebox
+
+        messagebox.showerror("IBIS Automation 启动失败", message, parent=root)
+        root.destroy()
+    except Exception:
+        return
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     store = ProjectStore(args.workspace)
-    controller = ProjectController(store)
-    if args.check:
-        print(f"IBIS UI Phase 1：模块导入与 ProjectStore 初始化成功（{store.workspace}）")
-        return 0
-    controller.load_recent()
+    resolver = ResourceResolver.current()
+    log_path: Path | None = None
     try:
+        store.ensure_ready()
+        log_path = configure_file_logging(store.workspace)
+        metadata = app_metadata()
+        logger().info(
+            "启动 %s；commit=%s；platform=%s；frozen=%s；workspace=%s",
+            metadata.version,
+            metadata.git_commit,
+            metadata.platform,
+            metadata.frozen,
+            store.workspace,
+        )
+        if args.check:
+            report = headless_check(store, resolver)
+            _write_report(args.check_report, report)
+            message = f"IBIS Automation Headless 检查通过（Workspace：{store.workspace}）"
+            logger().info(message)
+            _console_write(message)
+            return 0
+
+        resolver.validate()
+        controller = ProjectController(store, resources=resolver)
+        if args.smoke_test:
+            controller.import_excel(resolver.demo_config, "Windows GUI Smoke")
+        else:
+            controller.load_recent()
         from .view import IBISApplicationView
 
+        configure_process_dpi_awareness()
         view = IBISApplicationView(controller, smoke_test=args.smoke_test)
+        view.mainloop()
+        if args.smoke_test and view.smoke_error:
+            raise ResourceError("GUI_SMOKE_FAILED", f"Windows GUI Smoke Test 失败：{view.smoke_error}")
+        logger().info("IBIS Automation 正常退出")
+        return 0
     except tk.TclError as exc:
-        print(f"错误 [GUI_DISPLAY_UNAVAILABLE]：无法启动 Tkinter 图形界面（{exc}）", file=sys.stderr)
-        print("可使用 --check 在 Headless 环境验证数据层。", file=sys.stderr)
+        message = f"错误 [GUI_DISPLAY_UNAVAILABLE]：无法启动 Tkinter 图形界面（{exc}）"
+        if log_path:
+            logger().exception(message)
+        _console_write(message, error=True)
+        _console_write("可使用 --check 在 Headless 环境验证数据层。", error=True)
+        _write_report(args.check_report, {"status": "FAIL", "code": "GUI_DISPLAY_UNAVAILABLE", "message": message})
         return 2
-    view.mainloop()
-    return 0
+    except UIProjectError as exc:
+        message = f"错误 [{exc.code}]：{exc}"
+        if log_path:
+            logger().exception(message)
+        _console_write(message, error=True)
+        _write_report(args.check_report, {"status": "FAIL", "code": exc.code, "message": str(exc)})
+        if not args.check:
+            _show_startup_error(f"{message}\n\n日志：{log_path or '无法创建日志'}")
+        return 2
+    except Exception as exc:  # pragma: no cover - last-resort packaged startup protection
+        message = f"错误 [UNEXPECTED_STARTUP_ERROR]：软件启动异常（{exc}）"
+        if log_path:
+            logger().exception(message)
+        _console_write(message, error=True)
+        _write_report(args.check_report, {"status": "FAIL", "code": "UNEXPECTED_STARTUP_ERROR", "message": str(exc)})
+        if not args.check:
+            _show_startup_error(f"{message}\n\n日志：{log_path or '无法创建日志'}")
+        return 3
+    finally:
+        if log_path:
+            close_file_logging(log_path)

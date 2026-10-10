@@ -37,7 +37,9 @@ class ExcelImporter:
             raise ExcelImportError("EXCEL_SOURCE_MUTATED", f"导入过程中原始 Excel 被意外修改：{source}")
         payload = core_config_to_payload(config)
         try:
-            validate_config_payload(payload, check_paths=True)
+            # A Config moved from another machine remains importable. The UI exposes
+            # stale roots for repair, while Apply still requires all roots to exist.
+            validate_config_payload(payload, check_paths=False)
         except ProjectValidationError as exc:
             raise ExcelImportError(exc.code, f"导入 Config 校验失败：{exc}") from exc
         return ProjectDocument.create(
