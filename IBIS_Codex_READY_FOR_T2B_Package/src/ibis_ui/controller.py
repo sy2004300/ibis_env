@@ -97,6 +97,17 @@ class ProjectController:
             raise ProjectValidationError("PROJECT_FIELD_UNSUPPORTED", f"未知 Root：{name}")
         draft["roots"][name] = str(Path(value).expanduser().resolve()) if value.strip() else ""
 
+    def invalid_roots(self, draft: bool = True) -> dict[str, str]:
+        project, working = self._require_active()
+        config = working if draft else project.config
+        if not config.get("modules"):
+            return {}
+        return {
+            name: str(value)
+            for name, value in config.get("roots", {}).items()
+            if not str(value).strip() or not Path(str(value)).is_dir()
+        }
+
     def apply_changes(self) -> None:
         project, draft = self._require_active()
         validate_config_payload(draft, check_paths=True)

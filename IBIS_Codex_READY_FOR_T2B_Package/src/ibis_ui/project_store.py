@@ -8,16 +8,32 @@ from uuid import UUID
 
 from .errors import ProjectStorageError, ProjectValidationError
 from .models import ProjectDocument
+from .runtime import default_workspace
 
 
 class ProjectStore:
     """Atomic, project-id-scoped persistence for applied project snapshots."""
 
     def __init__(self, workspace: Path | None = None):
-        package_root = Path(__file__).resolve().parents[2]
-        self.workspace = (workspace or package_root / "workspace").expanduser().resolve()
+        self.workspace = (workspace or default_workspace()).expanduser().resolve()
         self.projects_root = self.workspace / "projects"
         self.state_path = self.workspace / "ui_state.json"
+
+    def ensure_ready(self) -> None:
+        """Create and verify the user-writable workspace before the UI starts."""
+        try:
+            self.projects_root.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.workspace, delete=False) as stream:
+                probe = Path(stream.name)
+                stream.write("IBIS Automation workspace check\n")
+            probe.unlink()
+        except OSError as exc:
+            if "probe" in locals():
+                probe.unlink(missing_ok=True)
+            raise ProjectStorageError(
+                "WORKSPACE_NOT_WRITABLE",
+                f"项目 Workspace 不可写，请使用 --workspace 指定其他目录：{self.workspace}（{exc}）",
+            ) from exc
 
     @staticmethod
     def _validated_project_id(project_id: str) -> str:

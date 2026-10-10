@@ -20,3 +20,7 @@ class ProjectStorageError(UIProjectError):
 
 class ExcelImportError(UIProjectError):
     pass
+
+
+class ResourceError(UIProjectError):
+    pass
