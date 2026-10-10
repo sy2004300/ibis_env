@@ -77,7 +77,27 @@ jobs:
       - name: Run Windows unit, template, robustness and UI tests
         env:
           PYTHONPATH: src
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path build -Force | Out-Null
+          $output = & python -m unittest discover -s tests -p "test_*.py" -v 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | Tee-Object -FilePath build/windows-unit-tests.log
+          if ($exitCode -ne 0) {
+            "### Windows unit test failure" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content build/windows-unit-tests.log -Tail 200 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit $exitCode
+          }
+
+      - name: Upload Windows unit test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unit-test-log-${{ github.run_id }}
+          path: IBIS_Codex_READY_FOR_T2B_Package/build/windows-unit-tests.log
+          if-no-files-found: error
 
       - name: Run Windows acceptance and Golden verification
         env:
