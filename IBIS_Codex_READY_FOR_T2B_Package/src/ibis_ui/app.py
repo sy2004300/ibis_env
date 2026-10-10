@@ -36,7 +36,10 @@ def _console_write(message: str, error: bool = False) -> None:
     """Write only when a console stream exists (PyInstaller windowed sets it to None)."""
     stream = sys.stderr if error else sys.stdout
     if stream is not None:
-        print(message, file=stream)
+        try:
+            print(message, file=stream)
+        except (OSError, UnicodeError):
+            return
 
 
 def headless_check(store: ProjectStore, resolver: ResourceResolver) -> dict[str, Any]:
