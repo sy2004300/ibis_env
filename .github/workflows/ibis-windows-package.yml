@@ -105,7 +105,30 @@ jobs:
       - name: Run Windows acceptance and Golden verification
         env:
           PYTHONPATH: src
-        run: python tests/run_acceptance.py
+          PYTHONUTF8: "1"
+        shell: pwsh
+        run: |
+          $output = & python tests/run_acceptance.py 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | Tee-Object -FilePath build/windows-acceptance.log
+          if ($exitCode -ne 0) {
+            "### Windows acceptance failure" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content build/windows-acceptance.log -Tail 200 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $annotation = (Get-Content build/windows-acceptance.log -Tail 40) -join "`n"
+            $annotation = $annotation.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            Write-Output "::error title=Windows acceptance details::$annotation"
+            exit $exitCode
+          }
+
+      - name: Upload Windows acceptance log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-acceptance-log-${{ github.run_id }}
+          path: IBIS_Codex_READY_FOR_T2B_Package/build/windows-acceptance.log
+          if-no-files-found: error
 
       - name: Create Windows path-neutral project snapshot
         run: python packaging/cross_platform_probe.py --output build/platform-windows.json
