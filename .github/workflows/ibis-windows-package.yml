@@ -206,9 +206,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: IBIS_Automation_Windows_UI1
-          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_UI1.zip
+          # GitHub creates the downloadable artifact ZIP. Uploading the onedir
+          # contents avoids a ZIP-inside-ZIP and makes one extraction sufficient.
+          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_UI1/
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 6
           retention-days: 30
 
   compatibility-check:
