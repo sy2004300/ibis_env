@@ -88,6 +88,9 @@ jobs:
             '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             Get-Content build/windows-unit-tests.log -Tail 200 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $annotation = (Get-Content build/windows-unit-tests.log -Tail 80) -join "`n"
+            $annotation = $annotation.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            Write-Output "::error title=Windows unit test details::$annotation"
             exit $exitCode
           }
 
