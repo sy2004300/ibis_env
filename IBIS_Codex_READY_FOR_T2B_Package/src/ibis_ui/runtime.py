@@ -14,7 +14,7 @@ from .errors import ResourceError
 
 
 APP_NAME = "IBIS Automation"
-APP_VERSION = "0.1.0-ui1"
+APP_VERSION = "0.1.1"
 APP_DATA_DIRECTORY = "IBIS_Automation"
 REQUIRED_TEMPLATES = (
     "_t2b_config.ini",

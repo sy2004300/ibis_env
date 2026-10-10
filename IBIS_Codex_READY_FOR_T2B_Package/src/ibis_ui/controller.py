@@ -6,16 +6,25 @@ from typing import Any
 
 from .errors import ProjectStateError, ProjectValidationError
 from .excel_importer import ExcelImporter
-from .models import ProjectDocument, build_case_tree, empty_config_payload, utc_now, validate_config_payload
+from .models import EXTERNAL_ROOT_NAMES, ProjectDocument, build_case_tree, empty_config_payload, utc_now, validate_config_payload
 from .project_store import ProjectStore
+from .runtime import ResourceResolver
+from .template_service import TemplateResourceService
 
 
 class ProjectController:
     """Headless UI-1 state machine: Draft -> Apply -> Save -> Reload."""
 
-    def __init__(self, store: ProjectStore, importer: ExcelImporter | None = None):
+    def __init__(
+        self,
+        store: ProjectStore,
+        importer: ExcelImporter | None = None,
+        resources: ResourceResolver | None = None,
+    ):
         self.store = store
         self.importer = importer or ExcelImporter()
+        self.resources = resources or ResourceResolver.current()
+        self.templates = TemplateResourceService(self.resources)
         self.project: ProjectDocument | None = None
         self.draft: dict[str, Any] | None = None
         self.has_unsaved_applied_changes = False
@@ -105,12 +114,22 @@ class ProjectController:
         return {
             name: str(value)
             for name, value in config.get("roots", {}).items()
-            if not str(value).strip() or not Path(str(value)).is_dir()
+            if name in EXTERNAL_ROOT_NAMES and (not str(value).strip() or not Path(str(value)).is_dir())
         }
+
+    def effective_template_root(self, draft: bool = True) -> Path:
+        project, working = self._require_active()
+        config = working if draft else project.config
+        return self.templates.effective_root(config)
+
+    def template_override(self) -> str:
+        _project, draft = self._require_active()
+        return str(draft.get("roots", {}).get("template", ""))
 
     def apply_changes(self) -> None:
         project, draft = self._require_active()
         validate_config_payload(draft, check_paths=True)
+        self.templates.effective_root(draft)
         project.config = copy.deepcopy(draft)
         project.updated_at = utc_now()
         self.draft = project.clone_config()

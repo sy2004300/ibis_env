@@ -1,0 +1,68 @@
+{
+  "roots": {
+    "model": "/fixture/models",
+    "msi": "/fixture/msi",
+    "spf": "/fixture/spf",
+    "template": ""
+  },
+  "modules": [
+    {
+      "name": "IO_DIFF",
+      "generate_type": "BOTH",
+      "impedances": [30, 40],
+      "ibis_io_voltage_domain": "VDDQ",
+      "ibis_vih_voltage_domain": "VDD",
+      "tr": {"MAX": "20p", "TYP": "20p", "MIN": "20p"},
+      "tf": {"MAX": "20p", "TYP": "20p", "MIN": "20p"}
+    },
+    {
+      "name": "IO_SE",
+      "generate_type": "BOTH",
+      "impedances": [34],
+      "ibis_io_voltage_domain": "VDDQ",
+      "ibis_vih_voltage_domain": "VDD",
+      "tr": {"MAX": "18p", "TYP": "19p", "MIN": "20p"},
+      "tf": {"MAX": "21p", "TYP": "22p", "MIN": "23p"}
+    },
+    {
+      "name": "OUTC",
+      "generate_type": "DRV",
+      "impedances": [48, 60],
+      "ibis_io_voltage_domain": "VDDQ",
+      "ibis_vih_voltage_domain": "VDD",
+      "tr": {"MAX": "24p", "TYP": "24p", "MIN": "24p"},
+      "tf": {"MAX": "25p", "TYP": "25p", "MIN": "25p"}
+    },
+    {
+      "name": "INSE",
+      "generate_type": "RCV",
+      "impedances": [80],
+      "ibis_io_voltage_domain": "VDDQ",
+      "ibis_vih_voltage_domain": "VDD",
+      "tr": {"MAX": "26p", "TYP": "26p", "MIN": "26p"},
+      "tf": {"MAX": "27p", "TYP": "27p", "MIN": "27p"}
+    }
+  ],
+  "corners": {
+    "MAX": {"name": "MAX", "process": "FF", "temperature": "125", "spf_key": "rcbest", "voltages": {"VDD": "0.825", "VDDQ": "0.57", "VSS": "0"}, "calibration": {}},
+    "TYP": {"name": "TYP", "process": "TT", "temperature": "25", "spf_key": "typical", "voltages": {"VDD": "0.75", "VDDQ": "0.50", "VSS": "0"}, "calibration": {}},
+    "MIN": {"name": "MIN", "process": "SS", "temperature": "-40", "spf_key": "rcworst", "voltages": {"VDD": "0.6975", "VDDQ": "0.47", "VSS": "0"}, "calibration": {}}
+  },
+  "voltage_order": ["VDD", "VDDQ", "VSS"],
+  "simulation_options": [],
+  "aliases": [],
+  "appends": [],
+  "templates": [
+    {"module": "IO_DIFF", "direction": "DRV", "template_type": "drv_diff"},
+    {"module": "IO_DIFF", "direction": "RCV", "template_type": "rcv_diff"},
+    {"module": "IO_SE", "direction": "DRV", "template_type": "drv_se"},
+    {"module": "IO_SE", "direction": "RCV", "template_type": "rcv_se"},
+    {"module": "OUTC", "direction": "DRV", "template_type": "drv_se"},
+    {"module": "INSE", "direction": "RCV", "template_type": "rcv_se"}
+  ],
+  "overrides": [],
+  "attribute_overrides": [],
+  "msi_mappings": [],
+  "spice_type": "spectre",
+  "spice_command": "spectre +preset=mx +spice +mt=4"
+}

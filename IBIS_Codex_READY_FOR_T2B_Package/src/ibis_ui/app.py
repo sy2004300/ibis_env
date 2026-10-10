@@ -13,10 +13,13 @@ from .excel_importer import ExcelImporter
 from .logging_utils import close_file_logging, configure_file_logging, logger
 from .project_store import ProjectStore
 from .runtime import ResourceResolver, app_metadata
+from .source_preview import preview_msi, preview_spf
+from .template_service import TemplateResourceService
+from .theme import configure_process_dpi_awareness
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Phase 1）")
+    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Phase 1.1）")
     result.add_argument("--workspace", type=Path, help="项目数据 Workspace；默认使用当前系统的用户数据目录")
     result.add_argument("--check", action="store_true", help="执行不创建窗口的安装、资源和 Config 初始化检查")
     result.add_argument("--check-report", type=Path, help="将 --check 结果写入 JSON，供打包验收使用")
@@ -55,6 +58,13 @@ def headless_check(store: ProjectStore, resolver: ResourceResolver) -> dict[str,
     if invalid_roots:
         detail = "、".join(f"{name}={value}" for name, value in invalid_roots.items())
         raise ResourceError("BUNDLED_DEMO_ROOT_INVALID", f"内置 Demo 的资源路径无效：{detail}")
+    templates = TemplateResourceService(resolver).list_templates(project.config)
+    msi = preview_msi(project.config)
+    spf = preview_spf(project.config)
+    source_errors = [item.message for item in msi.modules if item.status == "ERROR"]
+    source_errors.extend(item.message for item in spf.matches if item.status == "ERROR")
+    if source_errors:
+        raise ResourceError("BUNDLED_DEMO_SOURCE_PREVIEW_FAILED", f"内置 Demo 的 MSI/SPF 预览失败：{'；'.join(source_errors)}")
     metadata = app_metadata()
     return {
         "status": "PASS",
@@ -67,7 +77,10 @@ def headless_check(store: ProjectStore, resolver: ResourceResolver) -> dict[str,
         "workspace": str(store.workspace),
         "resource_root": str(resolver.root),
         "template_files": sorted(path.name for path in resolver.template_root.iterdir() if path.is_file()),
+        "resolved_template_files": [item.filename for item in templates],
         "demo_modules": [module["name"] for module in project.config["modules"]],
+        "msi_files": len(msi.files),
+        "spf_matches": len(spf.matches),
         "project_schema_version": project.schema_version,
     }
 
@@ -110,12 +123,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         resolver.validate()
-        controller = ProjectController(store)
-        controller.load_recent()
+        controller = ProjectController(store, resources=resolver)
+        if args.smoke_test:
+            controller.import_excel(resolver.demo_config, "Windows GUI Smoke")
+        else:
+            controller.load_recent()
         from .view import IBISApplicationView
 
+        configure_process_dpi_awareness()
         view = IBISApplicationView(controller, smoke_test=args.smoke_test)
         view.mainloop()
+        if args.smoke_test and view.smoke_error:
+            raise ResourceError("GUI_SMOKE_FAILED", f"Windows GUI Smoke Test 失败：{view.smoke_error}")
         logger().info("IBIS Automation 正常退出")
         return 0
     except tk.TclError as exc:

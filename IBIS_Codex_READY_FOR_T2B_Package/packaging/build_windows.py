@@ -10,18 +10,21 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from ibis_ui.runtime import APP_VERSION  # noqa: E402
+
 BUILD_ROOT = PROJECT_ROOT / "build" / "windows-package"
 PYINSTALLER_DIST = BUILD_ROOT / "pyinstaller-dist"
 PYINSTALLER_WORK = BUILD_ROOT / "pyinstaller-work"
 PACKAGE_INPUT = BUILD_ROOT / "package-input"
 DIST_ROOT = PROJECT_ROOT / "dist"
-OUTPUT_NAME = "IBIS_Automation_Windows_UI1"
+OUTPUT_NAME = "IBIS_Automation_Windows_UI1_1"
 OUTPUT_DIRECTORY = DIST_ROOT / OUTPUT_NAME
 OUTPUT_ARCHIVE = DIST_ROOT / f"{OUTPUT_NAME}.zip"
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Build the native Windows UI-1 onedir package")
+    result = argparse.ArgumentParser(description="Build the native Windows UI-1.1 onedir package")
     result.add_argument("--commit", required=True, help="Git commit embedded in the EXE About page")
     return result
 
@@ -67,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
 
     build_info = PACKAGE_INPUT / "build_info.json"
     build_info.write_text(
-        json.dumps({"app_version": "0.1.0-ui1", "git_commit": commit}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps({"app_version": APP_VERSION, "git_commit": commit}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     environment = os.environ.copy()

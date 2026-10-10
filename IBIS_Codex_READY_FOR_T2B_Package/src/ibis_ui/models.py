@@ -15,6 +15,7 @@ from .errors import ProjectValidationError
 PROJECT_SCHEMA_VERSION = 1
 CORNER_NAMES = ("MAX", "TYP", "MIN")
 ROOT_NAMES = ("model", "msi", "spf", "template")
+EXTERNAL_ROOT_NAMES = ("model", "msi", "spf")
 
 
 def utc_now() -> str:
@@ -121,12 +122,18 @@ def validate_config_payload(payload: dict[str, Any], check_paths: bool = False) 
         _require_mapping(corner.get("calibration"), f"Corner {name} Calibration")
 
     if modules:
-        for root_name in ROOT_NAMES:
+        for root_name in EXTERNAL_ROOT_NAMES:
             raw = str(roots.get(root_name, "")).strip()
             if not raw:
                 raise ProjectValidationError("PROJECT_ROOT_MISSING", f"项目缺少 {root_name.upper()} Root")
             if check_paths and not Path(raw).is_dir():
                 raise ProjectValidationError("PROJECT_ROOT_INVALID", f"项目 {root_name.upper()} Root 不存在：{raw}")
+        template_override = str(roots.get("template", "")).strip()
+        if check_paths and template_override and not Path(template_override).is_dir():
+            raise ProjectValidationError(
+                "PROJECT_TEMPLATE_OVERRIDE_INVALID",
+                f"外部 T2B Template Root 不存在：{template_override}；请修正或清空以使用软件内置模板",
+            )
 
     known_domains = {str(name).casefold() for name in voltage_order}
     seen_modules: set[str] = set()
