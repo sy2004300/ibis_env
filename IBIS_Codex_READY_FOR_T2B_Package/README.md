@@ -71,13 +71,50 @@ PYTHONPATH=src python -m ibis_ui
 PYTHONPATH=src python -m ibis_ui --check
 ```
 
-ProjectStore 默认使用 `workspace/projects/<project_id>/project.json`。每个项目使用
-UUID 作为目录名，项目文件的 `schema_version` 当前为 `1`；写入采用同目录临时文件
-加原子替换。导入的 Excel 仅作为只读来源，项目文件记录其绝对路径和 SHA-256，
-UI 修改只进入内部项目配置，绝不会回写原始工作簿。
+ProjectStore 默认使用当前用户的可写数据目录，不依赖源码或 EXE 安装位置：
+
+- Windows：`%LOCALAPPDATA%/IBIS_Automation/workspace/`
+- Linux：`~/.local/share/IBIS_Automation/workspace/`（设置 `XDG_DATA_HOME` 时遵循该目录）
+
+项目存储在 `projects/<project_id>/project.json`。每个项目使用 UUID 作为目录名，项目文件的
+`schema_version` 当前为 `1`；写入采用同目录临时文件加原子替换。导入的 Excel 仅作为只读
+来源，项目文件记录其绝对路径和 SHA-256，UI 修改只进入内部项目配置，绝不会回写原始工作簿。
+启动及异常日志位于 `<workspace>/logs/ibis_automation.log`。
 
 本阶段已实现 Import Excel、New Project 空项目入口、Case Tree、Section 2 常用字段编辑、
 `DIRTY → Apply Changes → Save Project`、项目重载及最近项目恢复。New Project 的完整
 Schema 编辑与 Excel Export 属于 UI-2，T2B Library 属于 UI-3，Generate、Files、Monitor
 属于 UI-4；界面中的对应入口均明确标记并禁用，本阶段不会执行真实 T2B、LSF 或
 `C_comp_view`。
+
+## Windows EXE 打包
+
+Windows 和 Linux 使用同一套 `src/ibis_ui/` 与 `src/ibis_auto/` 源码。Windows EXE 是
+PyInstaller `onedir` 产物，不存在独立的 Windows UI 实现。About 页面会显示 App Version、
+Git Commit 和 Platform，可用 Commit 判断两个平台是否属于同一版本。
+
+原生 Windows 构建由 `.github/workflows/ibis-windows-package.yml` 在 `windows-latest` 上执行。
+Workflow 会运行 Windows 测试、Core Acceptance、PyInstaller 构建、打包后 EXE Headless 检查、
+真实 Tk 窗口自动关闭 Smoke Test，并上传 `IBIS_Automation_Windows_UI1.zip` Artifact。Linux job
+运行相同测试；两个平台另外输出去除本地路径后的项目 JSON，并进行逐字节一致性比较。
+
+本地 Windows 构建命令：
+
+```powershell
+python -m pip install -r packaging/requirements-build.txt
+python packaging/build_windows.py --commit <当前完整 Git SHA>
+```
+
+产物结构：
+
+```text
+dist/IBIS_Automation_Windows_UI1/
+├── IBIS_Automation.exe
+├── _internal/
+└── README.txt
+```
+
+最终 ZIP 为 `dist/IBIS_Automation_Windows_UI1.zip`。`build/`、`dist/` 和 EXE/ZIP 产物不会提交
+到 Git。软件自带只读资源位于 `_internal/resources/`；项目 Workspace 始终位于用户数据目录，
+也可通过 `--workspace` 显式覆盖。若跨电脑项目的 MSI/SPF/Model/Template Root 失效，UI 会打开
+项目并提示重新指定路径，Apply 在路径修复前保持阻止状态。

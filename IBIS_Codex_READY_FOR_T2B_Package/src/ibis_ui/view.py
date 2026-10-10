@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import json
+import logging
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .controller import ProjectController
 from .errors import UIProjectError
+from .logging_utils import LOGGER_NAME
+from .runtime import app_metadata
 
 
 PHASE_LABELS = {
@@ -22,7 +24,8 @@ class IBISApplicationView(tk.Tk):
     def __init__(self, controller: ProjectController, smoke_test: bool = False):
         super().__init__()
         self.controller = controller
-        self.title("IBIS Automation — UI Phase 1")
+        self.metadata = app_metadata()
+        self.title(f"IBIS Automation {self.metadata.version} — UI Phase 1")
         self.geometry("1180x760")
         self.minsize(960, 640)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -54,6 +57,11 @@ class IBISApplicationView(tk.Tk):
         ttk.Button(panel, text="New Project", command=self._new_project, width=32).pack(pady=6)
         ttk.Button(panel, text="From Library（UI-3 后续阶段）", state="disabled", width=32).pack(pady=6)
         ttk.Label(panel, text="本阶段不会执行 Generate、真实 T2B、LSF 或 C_comp_view。", foreground="#555555").pack(pady=(24, 0))
+        ttk.Label(
+            panel,
+            text=f"Version {self.metadata.version} · Commit {self.metadata.short_commit} · {self.metadata.platform}",
+            foreground="#666666",
+        ).pack(pady=(10, 0))
 
     def _show_main(self) -> None:
         self._clear()
@@ -106,6 +114,20 @@ class IBISApplicationView(tk.Tk):
         self.log_text = tk.Text(self.log_tab, wrap="word", state="disabled")
         self.log_text.pack(fill="both", expand=True)
         self.notebook.add(self.log_tab, text="Log")
+        self.about_tab = ttk.Frame(self.notebook, padding=16)
+        self.notebook.add(self.about_tab, text="About")
+        ttk.Label(self.about_tab, text="IBIS Automation", font=("TkDefaultFont", 16, "bold")).pack(anchor="w")
+        ttk.Label(
+            self.about_tab,
+            justify="left",
+            text=(
+                f"App Version: {self.metadata.version}\n"
+                f"Git Commit: {self.metadata.git_commit}\n"
+                f"Platform: {self.metadata.platform}\n"
+                f"Runtime: {'Windows EXE' if self.metadata.frozen else 'Python Source'}\n"
+                f"Workspace: {self.controller.store.workspace}"
+            ),
+        ).pack(anchor="w", pady=(12, 0))
 
     def _build_config_tab(self) -> None:
         paths = ttk.LabelFrame(self.config_tab, text="Project / Path", padding=8)
@@ -236,6 +258,13 @@ class IBISApplicationView(tk.Tk):
             "本阶段已实现：Import / New Project / Draft / Apply / Save / Reload。",
             "未实现：Excel Export/Write Back（UI-2）、T2B Library（UI-3）、Generate/Monitor（UI-4）。",
         ]
+        invalid_roots = self.controller.invalid_roots()
+        if invalid_roots:
+            lines.extend([
+                "",
+                "警告：以下 Root 在当前电脑上无效，请在 Config 页面重新指定后 Apply：",
+                *[f"  {name.upper()}: {value or '(未设置)'}" for name, value in invalid_roots.items()],
+            ])
         self.overview_text.configure(state="normal")
         self.overview_text.delete("1.0", "end")
         self.overview_text.insert("1.0", "\n".join(lines))
@@ -262,6 +291,9 @@ class IBISApplicationView(tk.Tk):
                 self._clear_module_form()
         finally:
             self._loading_form = False
+        invalid_roots = self.controller.invalid_roots()
+        if invalid_roots:
+            self.status_message.configure(text="警告：项目 Root 在当前电脑上失效，请重新指定后 Apply Changes。")
 
     def _clear_module_form(self) -> None:
         for variable in self._module_vars.values():
@@ -351,6 +383,12 @@ class IBISApplicationView(tk.Tk):
         self._selected_module = None
         self._show_main()
         self._log(f"Import Excel：{path}（原文件只读，未修改）")
+        invalid_roots = self.controller.invalid_roots()
+        if invalid_roots:
+            detail = "\n".join(f"{name.upper()}: {value or '(未设置)'}" for name, value in invalid_roots.items())
+            warning = f"导入成功，但以下 Root 在当前电脑上无效，请重新指定后 Apply Changes：\n{detail}"
+            self._log(f"警告：{warning}")
+            messagebox.showwarning("项目路径需要修正", warning, parent=self)
 
     def _new_project(self) -> None:
         if not self._confirm_leave_current():
@@ -418,3 +456,15 @@ class IBISApplicationView(tk.Tk):
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+
+    def report_callback_exception(self, exc_type, exc_value, traceback) -> None:
+        logging.getLogger(LOGGER_NAME).error(
+            "UI 回调异常：%s",
+            exc_value,
+            exc_info=(exc_type, exc_value, traceback),
+        )
+        messagebox.showerror(
+            "IBIS Automation",
+            f"错误 [UI_CALLBACK_ERROR]：界面操作异常（{exc_value}）\n详细信息已写入 Workspace 日志。",
+            parent=self,
+        )
