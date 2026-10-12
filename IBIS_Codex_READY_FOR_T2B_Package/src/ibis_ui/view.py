@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import platform
+import subprocess
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
@@ -8,11 +11,13 @@ from tkinter import messagebox, simpledialog, ttk
 from .controller import ProjectController
 from .errors import UIProjectError
 from .logging_utils import LOGGER_NAME
-from .presentation import case_tree_counts, filter_case_tree
+from .presentation import build_project_overview, case_tree_counts, filter_case_tree
 from .runtime import app_metadata
-from .source_preview import preview_msi, preview_spf
+from .source_preview import preview_models, preview_msi, preview_spf
+from .status import ConfigStatus, GenerationStatus, status_label
 from .theme import BACKGROUND, FAIL, MUTED, PANEL, PASS, WARNING, apply_modern_style
-from .widgets import PathField, ScrollableFrame
+from .ui_text import TEXT, TOOLTIPS
+from .widgets import PathField, ScrollableFrame, Tooltip
 
 
 class IBISApplicationView(tk.Tk):
@@ -36,10 +41,7 @@ class IBISApplicationView(tk.Tk):
         self.smoke_error: str | None = None
         self._content = ttk.Frame(self)
         self._content.pack(fill="both", expand=True)
-        if self.controller.project:
-            self._show_main()
-        else:
-            self._show_start()
+        self._show_main() if self.controller.project else self._show_start()
         if smoke_test:
             self.after(400, self._run_smoke_test)
 
@@ -62,8 +64,8 @@ class IBISApplicationView(tk.Tk):
             self.config_scroll.canvas.yview_moveto(0.0)
             if len(self.template_tree.get_children()) != 5:
                 raise RuntimeError("T2B 内置模板列表不完整")
-            if not self.msi_tree.get_children() or not self.spf_tree.get_children():
-                raise RuntimeError("MSI/SPF 只读预览未加载")
+            if not self.msi_tree.get_children() or not self.spf_tree.get_children() or not self.model_tree.get_children():
+                raise RuntimeError("MSI/SPF/Model 只读预览未加载")
         except Exception as exc:
             self.smoke_error = str(exc)
         finally:
@@ -75,20 +77,61 @@ class IBISApplicationView(tk.Tk):
 
     def _show_start(self) -> None:
         self._clear()
-        panel = ttk.Frame(self._content, padding=44, style="Panel.TFrame")
-        panel.place(relx=0.5, rely=0.45, anchor="center")
-        ttk.Label(panel, text="IBIS Automation", style="Title.TLabel", background=PANEL).pack(pady=(0, 8))
-        ttk.Label(panel, text="IBIS 自动化配置工具 · UI Phase 1.1", style="Panel.TLabel").pack(pady=(0, 28))
-        ttk.Button(panel, text="Import Excel", style="Primary.TButton", command=self._import_excel, width=32).pack(pady=6)
-        ttk.Button(panel, text="New Project", command=self._new_project, width=32).pack(pady=6)
-        ttk.Button(panel, text="From Library（UI-3 后续阶段）", state="disabled", width=32).pack(pady=6)
-        ttk.Label(panel, text="本阶段不会执行 Generate、真实 T2B、LSF 或 C_comp_view。", style="Panel.TLabel", foreground=MUTED).pack(pady=(24, 0))
+        toolbar = ttk.Frame(self._content, padding=(16, 10), style="Toolbar.TFrame")
+        toolbar.pack(fill="x")
+        ttk.Label(toolbar, text="IBIS Automation", style="Title.TLabel", background=PANEL).pack(side="left")
+        ttk.Label(toolbar, text="未打开项目", style="StatusDirty.TLabel", background=PANEL).pack(side="left", padx=16)
+        for key, command, primary in (
+            ("open_project", self._open_project, False),
+            ("import_config", self._import_excel, True),
+            ("new_project", self._new_project, False),
+        ):
+            button = ttk.Button(toolbar, text=TEXT[key], command=command, style="Primary.TButton" if primary else "Secondary.TButton")
+            button.pack(side="right", padx=3)
+            Tooltip(button, TOOLTIPS[key])
+
+        scrolling = ScrollableFrame(self._content)
+        scrolling.pack(fill="both", expand=True, padx=16, pady=12)
+        panel = scrolling.body
+        ttk.Label(panel, text="项目首页", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(panel, text=TEXT.get("app_subtitle", ""), foreground=MUTED).pack(anchor="w", pady=(3, 18))
+        card = ttk.LabelFrame(panel, text="开始使用", padding=18, style="Card.TLabelframe")
+        card.pack(fill="x", pady=(0, 12))
+        ttk.Label(card, text="请选择一种方式开始：新建项目、只读导入 Config Excel，或打开已经保存的项目。", style="Panel.TLabel").pack(anchor="w")
+        actions = ttk.Frame(card, style="Panel.TFrame")
+        actions.pack(anchor="w", pady=(14, 0))
+        for key, command in (("new_project", self._new_project), ("import_config", self._import_excel), ("open_project", self._open_project)):
+            button = ttk.Button(actions, text=TEXT[key], command=command, style="Primary.TButton" if key == "import_config" else "Secondary.TButton")
+            button.pack(side="left", padx=(0, 8))
+            Tooltip(button, TOOLTIPS[key])
+
+        recent = ttk.LabelFrame(panel, text="最近项目", padding=12, style="Card.TLabelframe")
+        recent.pack(fill="both", expand=True, pady=(0, 12))
+        self.start_recent_tree = self._tree_with_scrollbars(
+            recent,
+            ("name", "time", "status", "path"),
+            ("项目名称", "最近使用", "状态", "项目配置路径"),
+            (220, 170, 100, 520),
+        )
+        self.start_recent_tree.bind("<Double-1>", lambda _event: self._open_selected_recent(self.start_recent_tree))
+        self._populate_recent_tree(self.start_recent_tree)
+        ttk.Button(recent, text="打开选中最近项目", command=lambda: self._open_selected_recent(self.start_recent_tree)).pack(anchor="e", pady=(6, 0))
+
+        guide = ttk.LabelFrame(panel, text="工程师工作流程", padding=12, style="Card.TLabelframe")
+        guide.pack(fill="x")
+        ttk.Label(
+            guide,
+            text="① 导入或新建项目  →  ② 检查输入文件  →  ③ 修改并保存配置  →  ④ 配置 T2B 模板（暂未开放）  →  ⑤ 生成文件（暂未开放）  →  ⑥ 查看结果（暂未开放）",
+            style="Panel.TLabel",
+            wraplength=1050,
+            justify="left",
+        ).pack(anchor="w")
+        ttk.Label(panel, text="本阶段不会执行真实 T2B、LSF 或 C_comp_view。", foreground=MUTED).pack(anchor="w", pady=(12, 0))
         ttk.Label(
             panel,
-            text=f"Version {self.metadata.version} · Commit {self.metadata.short_commit} · {self.metadata.platform}",
-            style="Panel.TLabel",
+            text=f"软件版本 {self.metadata.version} · Commit {self.metadata.short_commit} · 平台 {self.metadata.platform}",
             foreground=MUTED,
-        ).pack(pady=(10, 0))
+        ).pack(anchor="w", pady=(6, 0))
 
     def _show_main(self) -> None:
         self._clear()
@@ -108,28 +151,35 @@ class IBISApplicationView(tk.Tk):
     def _build_topbar(self) -> None:
         bar = ttk.Frame(self._content, padding=(12, 9), style="Toolbar.TFrame")
         bar.pack(fill="x")
+        home = ttk.Button(bar, text=TEXT["home"], command=self._go_home, style="Secondary.TButton")
+        home.pack(side="left", padx=(0, 10))
+        Tooltip(home, TOOLTIPS["home"])
         self.project_label = ttk.Label(bar, text="", style="Panel.TLabel", font=(self.ui_font, 11, "bold"))
         self.project_label.pack(side="left")
         self.state_label = ttk.Label(bar, text="", style="StatusSaved.TLabel", background=PANEL)
         self.state_label.pack(side="left", padx=16)
-        ttk.Button(bar, text="Import Excel", command=self._import_excel).pack(side="right", padx=3)
-        ttk.Button(bar, text="New Project", command=self._new_project).pack(side="right", padx=3)
-        ttk.Button(bar, text="高级设置", command=self._open_advanced_settings).pack(side="right", padx=3)
-        ttk.Button(bar, text="Export Excel（UI-2）", state="disabled").pack(side="right", padx=3)
-        ttk.Button(bar, text="T2B Library（UI-3）", state="disabled").pack(side="right", padx=3)
+        for key, command, primary in (
+            ("about", self._show_about, False),
+            ("advanced", self._open_advanced_settings, False),
+            ("save_config", self._save, True),
+            ("open_project", self._open_project, False),
+            ("import_config", self._import_excel, False),
+            ("new_project", self._new_project, False),
+        ):
+            button = ttk.Button(bar, text=TEXT[key], command=command, style="Primary.TButton" if primary else "Secondary.TButton")
+            button.pack(side="right", padx=3)
+            if key in TOOLTIPS:
+                Tooltip(button, TOOLTIPS[key])
 
     def _build_bottom(self) -> None:
         bar = ttk.Frame(self._content, padding=(12, 8), style="Toolbar.TFrame")
         bar.pack(side="bottom", fill="x")
         self.status_message = ttk.Label(bar, text="就绪", style="Panel.TLabel")
         self.status_message.pack(side="left", fill="x", expand=True)
-        ttk.Button(bar, text="Apply Changes", style="Primary.TButton", command=self._apply).pack(side="right", padx=4)
-        ttk.Button(bar, text="Save Project", command=self._save).pack(side="right", padx=4)
-        ttk.Button(bar, text="Generate Selected（UI-4）", state="disabled").pack(side="right", padx=4)
-        ttk.Button(bar, text="Generate All（UI-4）", state="disabled").pack(side="right", padx=4)
+        ttk.Label(bar, text="当前生成状态：未生成（生成功能将在 UI-4 开放）", style="Panel.TLabel", foreground=MUTED).pack(side="right")
 
     def _build_tree(self, parent: ttk.Frame) -> None:
-        ttk.Label(parent, text="IO Top / Case Tree", style="Panel.TLabel", font=(self.ui_font, 10, "bold")).pack(anchor="w")
+        ttk.Label(parent, text="IO Top / Case 任务树", style="Panel.TLabel", font=(self.ui_font, 10, "bold")).pack(anchor="w")
         search = ttk.Frame(parent, style="Panel.TFrame")
         search.pack(fill="x", pady=(8, 5))
         ttk.Label(search, text="搜索", style="Panel.TLabel").pack(side="left")
@@ -143,7 +193,7 @@ class IBISApplicationView(tk.Tk):
         holder = ttk.Frame(parent, style="Panel.TFrame")
         holder.pack(fill="both", expand=True)
         self.case_tree = ttk.Treeview(holder, columns=("kind", "state"), show="tree headings", selectmode="browse")
-        self.case_tree.heading("#0", text="IO Top / Direction / Ron")
+        self.case_tree.heading("#0", text="IO Top / 方向 / Ron")
         self.case_tree.heading("kind", text="类型")
         self.case_tree.heading("state", text="状态")
         self.case_tree.column("#0", width=230, minwidth=150, stretch=True)
@@ -160,7 +210,7 @@ class IBISApplicationView(tk.Tk):
         self.case_tree.bind("<<TreeviewSelect>>", self._tree_selected)
         ttk.Label(
             parent,
-            text="层级：IO Top → DRV/RCV → Ron\nGenerate 复选将在 UI-4 启用",
+            text="层级：IO Top → DRV/RCV → Ron\n任务勾选与生成将在 UI-4 开放",
             style="Panel.TLabel",
             foreground=MUTED,
         ).pack(anchor="w", pady=(6, 0))
@@ -168,45 +218,45 @@ class IBISApplicationView(tk.Tk):
     def _build_tabs(self, parent: ttk.Frame) -> None:
         self.notebook = ttk.Notebook(parent)
         self.notebook.pack(fill="both", expand=True)
-        self.overview_tab = ttk.Frame(self.notebook, padding=8)
+        self.home_tab = ttk.Frame(self.notebook, padding=8)
         self.config_tab = ttk.Frame(self.notebook)
-        self.t2b_tab = ttk.Frame(self.notebook, padding=8)
         self.files_tab = ttk.Frame(self.notebook, padding=8)
+        self.t2b_tab = ttk.Frame(self.notebook, padding=8)
+        self.results_tab = ttk.Frame(self.notebook, padding=24)
         self.monitor_tab = ttk.Frame(self.notebook, padding=24)
         self.log_tab = ttk.Frame(self.notebook, padding=8)
-        self.about_tab = ttk.Frame(self.notebook, padding=16)
         for tab, title in (
-            (self.overview_tab, "Overview"),
-            (self.config_tab, "Config"),
-            (self.t2b_tab, "T2B"),
-            (self.files_tab, "Files"),
-            (self.monitor_tab, "Monitor"),
-            (self.log_tab, "Log"),
-            (self.about_tab, "About"),
+            (self.home_tab, TEXT["home"]),
+            (self.config_tab, TEXT["config"]),
+            (self.files_tab, TEXT["input_files"]),
+            (self.t2b_tab, TEXT["t2b_templates"]),
+            (self.results_tab, TEXT["results"]),
+            (self.monitor_tab, TEXT["monitor"]),
+            (self.log_tab, TEXT["log"]),
         ):
             self.notebook.add(tab, text=title)
-        self.overview_text = self._text_with_scrollbars(self.overview_tab, wrap="word", readonly=True)
+        home_header = ttk.Frame(self.home_tab)
+        home_header.pack(fill="x", pady=(0, 8))
+        ttk.Label(home_header, text="项目总览", style="Title.TLabel").pack(side="left")
+        input_button = ttk.Button(home_header, text=TEXT["input_check"], command=self._go_input_files, style="Primary.TButton")
+        input_button.pack(side="right")
+        Tooltip(input_button, TOOLTIPS["input_check"])
+        self.overview_text = self._text_with_scrollbars(self.home_tab, wrap="word", readonly=True)
         self._build_config_tab()
-        self._build_t2b_tab()
         self._build_files_tab()
+        self._build_t2b_tab()
+        ttk.Label(
+            self.results_tab,
+            text="生成结果将在 UI-4 开放。当前所有 Case 的生成状态保持“未生成”，不会根据 Config 存在而显示通过。",
+            justify="left",
+            wraplength=800,
+        ).pack(anchor="nw")
         ttk.Label(
             self.monitor_tab,
-            text="UI-4 后续阶段：任务状态、Retry Failed 和运行进度尚未实现。\n本页不会假装执行真实 T2B、LSF 或仿真。",
+            text="任务监控将在 UI-4 开放。当前不会创建等待中、生成中或通过等虚假任务状态。\n本页不会执行真实 T2B、LSF 或仿真。",
             justify="left",
         ).pack(anchor="nw")
         self.log_text = self._text_with_scrollbars(self.log_tab, wrap="word", readonly=True)
-        ttk.Label(self.about_tab, text="IBIS Automation", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            self.about_tab,
-            justify="left",
-            text=(
-                f"App Version: {self.metadata.version}\n"
-                f"Git Commit: {self.metadata.git_commit}\n"
-                f"Platform: {self.metadata.platform}\n"
-                f"Runtime: {'Windows EXE' if self.metadata.frozen else 'Python Source'}\n"
-                f"Workspace: {self.controller.store.workspace}"
-            ),
-        ).pack(anchor="w", pady=(12, 0))
 
     def _text_with_scrollbars(self, parent: tk.Misc, wrap: str = "none", readonly: bool = False) -> tk.Text:
         holder = ttk.Frame(parent)
@@ -231,7 +281,8 @@ class IBISApplicationView(tk.Tk):
         self.config_scroll = scrolling
         parent = scrolling.body
 
-        paths = ttk.LabelFrame(parent, text="Section 1 — Project / Path", padding=10, style="Card.TLabelframe")
+        ttk.Label(parent, text="管理当前 IO Top 的 Ron、Voltage、Timing 及其他生成参数。", foreground=MUTED).pack(fill="x", pady=(0, 8))
+        paths = ttk.LabelFrame(parent, text="第 1 节 — 项目与路径", padding=10, style="Card.TLabelframe")
         paths.pack(fill="x", pady=(0, 8))
         for row, name in enumerate(("model", "msi", "spf")):
             ttk.Label(paths, text=f"{name.upper()} Root", style="Panel.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
@@ -247,12 +298,12 @@ class IBISApplicationView(tk.Tk):
             foreground=MUTED,
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(7, 0))
 
-        summary = ttk.LabelFrame(parent, text="Section 3.1 / 3.2 — Corner / Voltage（只读预览）", padding=10, style="Card.TLabelframe")
+        summary = ttk.LabelFrame(parent, text="第 3.1 / 3.2 节 — Corner / Voltage（只读预览）", padding=10, style="Card.TLabelframe")
         summary.pack(fill="x", pady=(0, 8))
         summary_holder = ttk.Frame(summary, style="Panel.TFrame")
         summary_holder.pack(fill="x")
         self.corner_summary = ttk.Treeview(summary_holder, columns=("max", "typ", "min"), show="tree headings", height=7)
-        self.corner_summary.heading("#0", text="Parameter")
+        self.corner_summary.heading("#0", text="参数")
         for name in ("max", "typ", "min"):
             self.corner_summary.heading(name, text=name.upper())
             self.corner_summary.column(name, width=120, anchor="center")
@@ -265,11 +316,11 @@ class IBISApplicationView(tk.Tk):
         xbar.grid(row=1, column=0, sticky="ew")
         summary_holder.columnconfigure(0, weight=1)
 
-        module = ttk.LabelFrame(parent, text="Section 2 — Module / Direction / Ron / T2B 动态参数", padding=10, style="Card.TLabelframe")
+        module = ttk.LabelFrame(parent, text="第 2 节 — 模块 / 方向 / Ron / T2B 动态参数", padding=10, style="Card.TLabelframe")
         module.pack(fill="x", pady=(0, 8))
         fields = (
-            ("name", "Module", "readonly"),
-            ("generate_type", "Generate Type", "combo"),
+            ("name", "模块", "readonly"),
+            ("generate_type", "生成类型", "combo"),
             ("impedances", "Ron（逗号分隔）", "entry"),
             ("ibis_io_voltage_domain", "IBIS IO Voltage Domain", "domain"),
             ("ibis_vih_voltage_domain", "IBIS VIH Voltage Domain", "domain"),
@@ -304,24 +355,24 @@ class IBISApplicationView(tk.Tk):
         module.columnconfigure(1, weight=1)
         self.module_notice = ttk.Label(
             module,
-            text="请选择左侧 IO Top。DRV+RCV 应使用单行 Generate Type=BOTH；完整 Section 1–10 编辑由 UI-2 实现。",
+            text="请选择左侧 IO Top。DRV+RCV 应使用单行生成类型=BOTH；完整第 1–10 节编辑由 UI-2 实现。",
             style="Panel.TLabel",
             foreground=MUTED,
         )
         self.module_notice.grid(row=len(fields), column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-        future = ttk.LabelFrame(parent, text="Section 3.3–10 — 扩展配置分区", padding=10, style="Card.TLabelframe")
+        future = ttk.LabelFrame(parent, text="第 3.3–10 节 — 扩展配置分区", padding=10, style="Card.TLabelframe")
         future.pack(fill="x", pady=(0, 8))
         rows = (
             ("3.3 Calibration", "只读保留；UI-2 编辑"),
-            ("3.4 SPF Match", "Files 页提供只读匹配预览"),
-            ("4 Simulation Options", "只读保留；UI-2 编辑"),
+            ("3.4 SPF Match", "输入文件页提供只读匹配预览"),
+            ("4 仿真选项", "只读保留；UI-2 编辑"),
             ("5 IBIS Pin Mapping", "只读保留；UI-2 编辑"),
             ("6 CKT Append", "只读保留；UI-2 编辑"),
-            ("7 T2B Template Mapping", "T2B 页显示当前映射"),
+            ("7 T2B Template Mapping", "T2B 模板页显示当前映射"),
             ("8 Signal Override", "只读保留；UI-2 编辑"),
             ("9 MSI Attribute Override", "只读保留；UI-2 编辑"),
-            ("10 MSI Mapping", "Files 页提供只读来源预览"),
+            ("10 MSI Mapping", "输入文件页提供只读来源预览"),
         )
         for row, (name, state) in enumerate(rows):
             ttk.Label(future, text=name, style="Panel.TLabel").grid(row=row, column=0, sticky="w", pady=2)
@@ -358,24 +409,78 @@ class IBISApplicationView(tk.Tk):
         ).pack(fill="x", pady=(6, 0))
 
     def _build_files_tab(self) -> None:
+        ttk.Label(
+            self.files_tab,
+            text="检查各模块使用的 MSI 信号表、SPF 网表和模型文件。匹配成功不代表 IBIS 已生成通过。",
+            foreground=MUTED,
+        ).pack(fill="x", pady=(0, 8))
         toolbar = ttk.Frame(self.files_tab)
         toolbar.pack(fill="x", pady=(0, 6))
-        ttk.Button(toolbar, text="刷新 MSI / SPF 扫描", style="Primary.TButton", command=self._refresh_sources).pack(side="left")
+        refresh = ttk.Button(toolbar, text="刷新输入检查", style="Primary.TButton", command=self._refresh_sources)
+        refresh.pack(side="left")
+        Tooltip(refresh, "刷新输入检查：重新扫描 MSI、SPF 和 Model Root，不修改任何源文件。")
         self.source_summary = ttk.Label(toolbar, text="", foreground=MUTED)
         self.source_summary.pack(side="left", padx=12)
         notebook = ttk.Notebook(self.files_tab)
         notebook.pack(fill="both", expand=True)
-        msi_tab = ttk.Frame(notebook, padding=4)
-        spf_tab = ttk.Frame(notebook, padding=4)
-        notebook.add(msi_tab, text="MSI Sources")
-        notebook.add(spf_tab, text="SPF Match")
-        self.msi_tree = self._msi_tree_with_scrollbars(msi_tab)
+        self.input_notebook = notebook
+        msi_tab = ttk.Frame(notebook, padding=8)
+        spf_tab = ttk.Frame(notebook, padding=8)
+        model_tab = ttk.Frame(notebook, padding=8)
+        notebook.add(msi_tab, text="MSI 信号表")
+        notebook.add(spf_tab, text="SPF 网表")
+        notebook.add(model_tab, text="Model Library")
+
+        msi_head = ttk.Frame(msi_tab)
+        msi_head.pack(fill="x", pady=(0, 6))
+        self.msi_summary = ttk.Label(msi_head, text="")
+        self.msi_summary.pack(side="left", fill="x", expand=True)
+        ttk.Button(msi_head, text="查看 MSI 目录", command=lambda: self._open_root_directory("msi")).pack(side="right", padx=3)
+        self.msi_details_button = ttk.Button(msi_head, text="查看扫描详情", command=self._toggle_msi_details)
+        self.msi_details_button.pack(side="right", padx=3)
+        self.msi_tree = self._tree_with_scrollbars(
+            msi_tab,
+            ("module", "file", "sheet", "pin", "status", "message"),
+            ("IO Top", "MSI 文件", "Sheet", "PIN_NAME Column", "状态", "说明"),
+            (150, 210, 150, 160, 90, 320),
+        )
+        self.msi_detail_holder = ttk.LabelFrame(msi_tab, text="Excel / Sheet 扫描详情", padding=6)
+        self.msi_detail_tree = self._tree_with_scrollbars(
+            self.msi_detail_holder,
+            ("file", "sheet", "pin", "status", "path"),
+            ("Excel 文件", "Sheet", "PIN_NAME 候选列", "状态", "完整路径 / 说明"),
+            (210, 170, 190, 90, 460),
+        )
+        self._msi_details_visible = False
+
+        spf_head = ttk.Frame(spf_tab)
+        spf_head.pack(fill="x", pady=(0, 6))
+        self.spf_summary = ttk.Label(spf_head, text="")
+        self.spf_summary.pack(side="left", fill="x", expand=True)
+        ttk.Button(spf_head, text="查看 SPF 目录", command=lambda: self._open_root_directory("spf")).pack(side="right", padx=3)
         self.spf_tree = self._tree_with_scrollbars(
             spf_tab,
             ("module", "corner", "status", "top", "pins", "path", "message"),
-            ("Module", "Corner", "状态", "TOP_SUBCKT", "Pins", "SPF Path", "说明"),
+            ("IO Top", "Corner", "状态", "TOP_SUBCKT", "Pin 数量", "SPF 文件", "说明"),
             (150, 70, 80, 170, 55, 400, 300),
         )
+
+        model_head = ttk.Frame(model_tab)
+        model_head.pack(fill="x", pady=(0, 6))
+        self.model_summary = ttk.Label(model_head, text="")
+        self.model_summary.pack(side="left", fill="x", expand=True)
+        ttk.Button(model_head, text="查看 Model 目录", command=lambda: self._open_root_directory("model")).pack(side="right", padx=3)
+        self.model_tree = self._tree_with_scrollbars(
+            model_tab,
+            ("file", "type", "status", "path", "message"),
+            ("必需模型文件", "SPICE 类型", "状态", "完整路径", "说明"),
+            (180, 120, 90, 500, 240),
+        )
+        ttk.Label(
+            model_tab,
+            text="这里只检查必需模型文件是否存在；未执行完整仿真或电气模型校验。",
+            foreground=WARNING,
+        ).pack(fill="x", pady=(6, 0))
 
     def _msi_tree_with_scrollbars(self, parent: tk.Misc) -> ttk.Treeview:
         holder = ttk.Frame(parent)
@@ -432,10 +537,10 @@ class IBISApplicationView(tk.Tk):
         project = self.controller.project
         if not project:
             return
-        self.project_label.configure(text=f"Project: {project.name}")
-        state = self.controller.state_label
-        style = "StatusDirty.TLabel" if state == "DIRTY" or "未保存" in state else "StatusSaved.TLabel"
-        self.state_label.configure(text=state, style=style, background=PANEL)
+        self.project_label.configure(text=f"当前项目：{project.name}")
+        state = self.controller.config_status or ConfigStatus.UNMODIFIED
+        style = "StatusError.TLabel" if state == ConfigStatus.ERROR else ("StatusDirty.TLabel" if state == ConfigStatus.DIRTY else "StatusSaved.TLabel")
+        self.state_label.configure(text=status_label(state), style=style, background=PANEL)
 
     def _refresh_tree(self) -> None:
         if not hasattr(self, "case_tree"):
@@ -450,15 +555,15 @@ class IBISApplicationView(tk.Tk):
         for module_index, module in enumerate(visible):
             module_id = f"module:{module_index}"
             first_module_id = first_module_id or module_id
-            self.case_tree.insert("", "end", module_id, text=str(module["module"]), values=("IO Top", "CONFIGURED"), open=True)
+            self.case_tree.insert("", "end", module_id, text=str(module["module"]), values=("IO Top", "已配置"), open=True)
             self._tree_modules[module_id] = str(module["module"])
             for direction_index, direction in enumerate(module["directions"]):
                 direction_id = f"{module_id}:direction:{direction_index}"
-                self.case_tree.insert(module_id, "end", direction_id, text=str(direction["direction"]), values=("Direction", "CONFIGURED"), open=True)
+                self.case_tree.insert(module_id, "end", direction_id, text=str(direction["direction"]), values=("方向", "已配置"), open=True)
                 self._tree_modules[direction_id] = str(module["module"])
                 for ron_index, ron in enumerate(direction["rons"]):
                     case_id = f"{direction_id}:ron:{ron_index}"
-                    self.case_tree.insert(direction_id, "end", case_id, text=f"{ron}Ω", values=("Ron", "NOT GENERATED"))
+                    self.case_tree.insert(direction_id, "end", case_id, text=f"{ron}Ω", values=("Ron", status_label(GenerationStatus.NOT_GENERATED)))
                     self._tree_modules[case_id] = str(module["module"])
         visible_names = {str(item["module"]) for item in visible}
         if self._selected_module not in visible_names:
@@ -479,24 +584,50 @@ class IBISApplicationView(tk.Tk):
         except UIProjectError as exc:
             template_root = Path(f"错误 [{exc.code}] {exc}")
             template_source = "不可用"
+        msi = preview_msi(config)
+        spf = preview_spf(config)
+        models = preview_models(config)
+        overview = build_project_overview(config, self.controller.config_status or ConfigStatus.UNMODIFIED, msi, spf, models)
+        steps = (
+            ("① 导入或新建项目", True, ""),
+            ("② 检查输入文件", overview.inputs_ready, ""),
+            ("③ 修改并保存配置", self.controller.config_status == ConfigStatus.SAVED, ""),
+            ("④ 配置 T2B 模板", False, "暂未开放（UI-3）"),
+            ("⑤ 生成文件", False, "暂未开放（UI-4）"),
+            ("⑥ 查看结果", False, "暂未开放（UI-4）"),
+        )
         lines = [
-            f"Project ID: {project.project_id if project else ''}",
-            f"Mode: {project.mode if project else ''}",
-            f"Source Excel（只读）: {source}",
+            f"项目名称：{project.name if project else ''}",
+            f"项目 ID：{project.project_id if project else ''}",
+            f"项目模式：{'Excel 导入' if project and project.mode == 'excel' else 'UI 新建'}",
+            f"来源 Config Excel（只读）：{source}",
+            f"配置状态：{overview.config_status}",
             "",
-            "Roots:",
-            *[f"  {name.upper()}: {config.get('roots', {}).get(name, '') or '(未设置)'}" for name in ("model", "msi", "spf")],
-            f"  T2B Templates ({template_source}): {template_root}",
+            "项目概要",
+            f"  IO Top：{overview.io_top_count}",
+            f"  DRV/RCV 分支：{overview.branch_count}",
+            f"  Case：{overview.case_count}（生成状态均为“未生成”）",
+            f"  MSI 匹配：{overview.msi_matched}/{overview.msi_total}",
+            f"  SPF Corner 匹配：{overview.spf_matched}/{overview.spf_total}",
+            f"  Model 必需文件：{overview.model_files_found}/{overview.model_files_total}（仅存在性检查）",
             "",
-            f"Modules: {len(config.get('modules', []))}",
-            f"Voltage Domains: {', '.join(config.get('voltage_order', [])) or '(未设置)'}",
+            f"当前工作阶段：{overview.current_stage}",
+            f"推荐下一步：{overview.recommended_action}",
             "",
-            "本阶段已实现：滚动配置、主题、多模块树、内置模板只读查看、MSI/SPF 来源预览。",
-            "未实现：Excel Export/Write Back（UI-2）、工作模板/历史库（UI-3）、Generate/Monitor（UI-4）。",
+            "工作流程",
+            *[f"  {'✓' if complete else '○'} {name}{f' — {note}' if note else ''}" for name, complete, note in steps],
+            "",
+            "输入路径",
+            *[f"  {name.upper()} Root：{config.get('roots', {}).get(name, '') or '(未设置)'}" for name in ("model", "msi", "spf")],
+            f"  T2B 母模板（{template_source}）：{template_root}",
+            "",
+            f"Voltage Domain：{', '.join(config.get('voltage_order', [])) or '(未设置)'}",
+            "",
+            "阶段边界：Excel 双向写回和 MSI Merge 属于 UI-2；T2B 工作模板与历史库属于 UI-3；生成与监控属于 UI-4。",
         ]
         invalid_roots = self.controller.invalid_roots()
         if invalid_roots:
-            lines.extend(["", "警告：以下 Root 在当前电脑上无效，请重新指定后 Apply：", *[f"  {name.upper()}: {value or '(未设置)'}" for name, value in invalid_roots.items()]])
+            lines.extend(["", "警告：以下 Root 在当前电脑上无效，请修正后点击“保存配置”：", *[f"  {name.upper()}：{value or '(未设置)'}" for name, value in invalid_roots.items()]])
         self._set_readonly_text(self.overview_text, "\n".join(lines))
 
     @staticmethod
@@ -528,7 +659,7 @@ class IBISApplicationView(tk.Tk):
         finally:
             self._loading_form = False
         if self.controller.invalid_roots():
-            self.status_message.configure(text="警告：Model/MSI/SPF Root 在当前电脑上失效，请重新指定后 Apply Changes。", foreground=WARNING)
+            self.status_message.configure(text="警告：Model/MSI/SPF Root 在当前电脑上失效，请重新指定后保存配置。", foreground=WARNING)
 
     def _clear_module_form(self) -> None:
         for variable in self._module_vars.values():
@@ -555,9 +686,9 @@ class IBISApplicationView(tk.Tk):
         try:
             templates = self.controller.templates.list_templates(config)
             source = "外部覆盖" if self.controller.templates.using_override(config) else "软件内置只读资源"
-            self.template_root_label.configure(text=f"Template Root：{templates[0].path.parent}（{source}）", foreground=PASS)
+            self.template_root_label.configure(text=f"模板 Root：{templates[0].path.parent}（{source}）", foreground=PASS)
             mappings = self.controller.templates.mappings_for(config, self._selected_module)
-            mapping_text = "；".join(f"{item.get('direction')} → {item.get('template_type')}" for item in mappings) or "当前模块无 Template Mapping"
+            mapping_text = "；".join(f"{item.get('direction')} → {item.get('template_type')}" for item in mappings) or "当前模块无模板映射"
             self.template_mapping_label.configure(text=f"{self._selected_module or '未选择模块'}：{mapping_text}")
             for info in templates:
                 self.template_tree.insert("", "end", iid=info.filename, values=(f"{info.filename}  ·  {info.template_type}",))
@@ -567,7 +698,7 @@ class IBISApplicationView(tk.Tk):
                 self._template_selected()
         except UIProjectError as exc:
             self.template_root_label.configure(text=f"错误 [{exc.code}]：{exc}", foreground=FAIL)
-            self.template_mapping_label.configure(text="请在高级设置中修正或清空外部 Template Root。")
+            self.template_mapping_label.configure(text="请在高级设置中修正或清空外部模板 Root。")
             self._set_readonly_text(self.template_text, f"错误 [{exc.code}]：{exc}")
 
     def _template_selected(self, _event=None) -> None:
@@ -583,26 +714,165 @@ class IBISApplicationView(tk.Tk):
     def _refresh_sources(self) -> None:
         config = self.controller.active_config
         self.msi_tree.delete(*self.msi_tree.get_children())
+        self.msi_detail_tree.delete(*self.msi_detail_tree.get_children())
         self.spf_tree.delete(*self.spf_tree.get_children())
+        self.model_tree.delete(*self.model_tree.get_children())
         msi = preview_msi(config)
-        file_nodes: dict[Path, str] = {}
-        for item in msi.sheets:
-            file_node = file_nodes.get(item.file)
-            if file_node is None:
-                file_node = self.msi_tree.insert("", "end", text=item.file.name, values=("", "", "FOUND", str(item.file)), open=True)
-                file_nodes[item.file] = file_node
-            self.msi_tree.insert(file_node, "end", text="Sheet", values=(item.sheet, ", ".join(item.pin_columns), "ERROR" if item.error else "FOUND", item.error), tags=("ERROR",) if item.error else ())
         for item in msi.modules:
-            self.msi_tree.insert("", "end", text=f"Module: {item.module}", values=(item.sheet, item.pin_column, item.status, f"{item.file} {item.message}".strip()), tags=(item.status,))
+            display_status = "已匹配" if item.status == "PASS" else "匹配失败"
+            self.msi_tree.insert(
+                "",
+                "end",
+                values=(item.module, item.file, item.sheet, item.pin_column, display_status, item.message),
+                tags=(item.status,),
+            )
+        for item in msi.sheets:
+            internal = "ERROR" if item.error else "PASS"
+            self.msi_detail_tree.insert(
+                "",
+                "end",
+                values=(item.file.name, item.sheet, ", ".join(item.pin_columns), "错误" if item.error else "已发现", item.error or str(item.file)),
+                tags=(internal,),
+            )
         spf = preview_spf(config)
         for item in spf.matches:
-            self.spf_tree.insert("", "end", values=(item.module, item.corner, item.status, item.top_subckt, item.pin_count or "", item.path, item.message), tags=(item.status,))
+            display_status = "匹配失败" if item.status == "ERROR" else ("警告" if item.status == "WARNING" else "已匹配")
+            self.spf_tree.insert("", "end", values=(item.module, item.corner, display_status, item.top_subckt, item.pin_count or "", item.path, item.message), tags=(item.status,))
+        models = preview_models(config)
+        for item in models.files:
+            internal = "PASS" if item.status == "FOUND" else "ERROR"
+            self.model_tree.insert(
+                "",
+                "end",
+                values=(item.filename, models.spice_type, "已发现" if item.status == "FOUND" else "错误", item.path, item.message),
+                tags=(internal,),
+            )
         msi_errors = sum(item.status == "ERROR" for item in msi.modules)
         spf_errors = sum(item.status == "ERROR" for item in spf.matches)
-        self.source_summary.configure(
-            text=f"MSI Excel {len(msi.files)} · MSI Error {msi_errors} · SPF Match {len(spf.matches)} · SPF Error {spf_errors}",
-            foreground=FAIL if msi_errors or spf_errors else PASS,
+        model_errors = sum(item.status == "ERROR" for item in models.files)
+        msi_matches = len(msi.modules) - msi_errors
+        spf_matches = len(spf.matches) - spf_errors
+        model_found = len(models.files) - model_errors
+        self.msi_summary.configure(
+            text=f"MSI Root：{msi.root}    Excel {len(msi.files)}    Sheet {len(msi.sheets)}    IO Top {len(msi.modules)}    已匹配 {msi_matches} / 失败 {msi_errors}",
+            foreground=FAIL if msi_errors else PASS,
         )
+        self.spf_summary.configure(
+            text=f"SPF Root：{spf.root}    Corner {len(spf.matches)}    已匹配 {spf_matches} / 失败 {spf_errors}",
+            foreground=FAIL if spf_errors else PASS,
+        )
+        self.model_summary.configure(
+            text=f"Model Root：{models.root}    SPICE 类型 {models.spice_type}    必需文件 {model_found}/{len(models.files)}",
+            foreground=FAIL if model_errors else PASS,
+        )
+        self.source_summary.configure(
+            text=f"MSI 匹配失败 {msi_errors} · SPF 匹配失败 {spf_errors} · Model 缺失 {model_errors}",
+            foreground=FAIL if msi_errors or spf_errors or model_errors else PASS,
+        )
+        self._source_reports = (msi, spf, models)
+
+    def _toggle_msi_details(self) -> None:
+        if self._msi_details_visible:
+            self.msi_detail_holder.pack_forget()
+            self.msi_details_button.configure(text="查看扫描详情")
+        else:
+            self.msi_detail_holder.pack(fill="both", expand=True, pady=(8, 0))
+            self.msi_details_button.configure(text="收起扫描详情")
+        self._msi_details_visible = not self._msi_details_visible
+
+    def _go_home(self) -> None:
+        if hasattr(self, "notebook") and hasattr(self, "home_tab"):
+            self._refresh_overview()
+            self.notebook.select(self.home_tab)
+
+    def _go_input_files(self) -> None:
+        self._refresh_sources()
+        self.notebook.select(self.files_tab)
+
+    def _show_about(self) -> None:
+        runtime = "Windows EXE" if self.metadata.frozen else "Python 源码"
+        messagebox.showinfo(
+            "关于软件",
+            (
+                "IBIS Automation\n\n"
+                f"软件版本：{self.metadata.version}\n"
+                f"Git Commit：{self.metadata.git_commit}\n"
+                f"运行平台：{self.metadata.platform}\n"
+                f"运行方式：{runtime}\n"
+                f"项目 Workspace：{self.controller.store.workspace}"
+            ),
+            parent=self,
+        )
+
+    def _open_root_directory(self, name: str) -> None:
+        raw = str(self.controller.active_config.get("roots", {}).get(name, "")).strip()
+        path = Path(raw).expanduser() if raw else Path()
+        if not raw or not path.is_dir():
+            messagebox.showwarning("目录不可用", f"{name.upper()} Root 不存在，请先在参数配置中重新指定。", parent=self)
+            return
+        try:
+            if platform.system() == "Windows":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.clipboard_clear()
+            self.clipboard_append(str(path.resolve()))
+            messagebox.showwarning("无法打开目录", f"系统无法打开目录，完整路径已复制到剪贴板：\n{path}\n\n{exc}", parent=self)
+
+    def _populate_recent_tree(self, tree: ttk.Treeview) -> None:
+        tree.delete(*tree.get_children())
+        records = self.controller.recent_projects()
+        for record in records:
+            tree.insert(
+                "",
+                "end",
+                iid=record.project_id,
+                values=(record.name, record.last_opened or "未知", "可打开" if record.available else "源路径失效", str(record.path)),
+                tags=("PASS" if record.available else "ERROR",),
+            )
+        if not records:
+            tree.insert("", "end", iid="recent:none", values=("暂无最近项目", "", "", ""))
+
+    def _open_selected_recent(self, tree: ttk.Treeview) -> None:
+        selection = tree.selection()
+        if not selection:
+            return
+        if not self._confirm_leave_current():
+            return
+        project_id = selection[0]
+        if project_id == "recent:none":
+            return
+        try:
+            self.controller.load_project(project_id)
+        except UIProjectError as exc:
+            self._show_error(exc)
+            return
+        self._selected_module = None
+        self._show_main()
+
+    def _open_project(self) -> None:
+        from tkinter import filedialog
+
+        path = filedialog.askopenfilename(
+            title="打开项目配置",
+            initialdir=self.controller.store.projects_root,
+            filetypes=(("IBIS 项目配置", "project.json"), ("JSON 文件", "*.json")),
+        )
+        if not path:
+            return
+        if not self._confirm_leave_current():
+            return
+        try:
+            self.controller.open_project_file(Path(path))
+        except UIProjectError as exc:
+            self._show_error(exc)
+            return
+        self._selected_module = None
+        self._show_main()
+        self._log(f"打开项目：{path}")
 
     def _tree_selected(self, _event=None) -> None:
         selection = self.case_tree.selection()
@@ -653,7 +923,7 @@ class IBISApplicationView(tk.Tk):
         win.grab_set()
         body = ttk.Frame(win, padding=14)
         body.pack(fill="both", expand=True)
-        ttk.Label(body, text="外部 T2B Template Root 覆盖", font=(self.ui_font, 10, "bold")).pack(anchor="w")
+        ttk.Label(body, text="外部 T2B 模板 Root 覆盖", font=(self.ui_font, 10, "bold")).pack(anchor="w")
         ttk.Label(
             body,
             text="留空时使用软件内置四份母模板。旧项目/Excel 中的路径仍会加载；路径失效时请修正或清空。",
@@ -672,7 +942,7 @@ class IBISApplicationView(tk.Tk):
             except UIProjectError as exc:
                 effective.configure(text=f"错误 [{exc.code}]：{exc}", foreground=FAIL)
 
-        PathField(row, variable, update_override, "选择外部 T2B Template Root").pack(side="left", fill="x", expand=True)
+        PathField(row, variable, update_override, "选择外部 T2B 模板 Root").pack(side="left", fill="x", expand=True)
 
         def clear_override() -> None:
             variable.set("")
@@ -690,27 +960,27 @@ class IBISApplicationView(tk.Tk):
         except UIProjectError as exc:
             self._show_error(exc)
             return
-        self._log("Apply Changes：配置校验通过，草稿已成为生效快照。")
-        self.status_message.configure(text="Apply Changes 成功；请 Save Project 持久化。", foreground=PASS)
+        self._log("高级应用：配置校验通过，草稿已成为生效快照。")
+        self.status_message.configure(text="高级应用成功；请点击“保存配置”持久化。", foreground=PASS)
         self._refresh_all()
 
     def _save(self) -> None:
         try:
-            path = self.controller.save_project()
+            path = self.controller.save_configuration()
         except UIProjectError as exc:
             self._show_error(exc)
             return
-        self._log(f"Save Project：{path}")
-        self.status_message.configure(text=f"项目已保存：{path}", foreground=PASS)
-        self._refresh_status()
+        self._log(f"保存配置：{path}")
+        self.status_message.configure(text=f"配置已保存：{path}", foreground=PASS)
+        self._refresh_all()
 
     def _import_excel(self) -> None:
-        if not self._confirm_leave_current():
-            return
         from tkinter import filedialog
 
-        path = filedialog.askopenfilename(title="选择 IBIS Config Excel", filetypes=(("Excel Workbook", "*.xlsx"),))
+        path = filedialog.askopenfilename(title="选择 IBIS Config Excel", filetypes=(("Excel 工作簿", "*.xlsx"),))
         if not path:
+            return
+        if not self._confirm_leave_current():
             return
         try:
             self.controller.import_excel(Path(path))
@@ -719,19 +989,19 @@ class IBISApplicationView(tk.Tk):
             return
         self._selected_module = None
         self._show_main()
-        self._log(f"Import Excel：{path}（原文件只读，未修改）")
+        self._log(f"导入配置：{path}（原文件只读，未修改）")
         invalid_roots = self.controller.invalid_roots()
         if invalid_roots:
             detail = "\n".join(f"{name.upper()}: {value or '(未设置)'}" for name, value in invalid_roots.items())
-            warning = f"导入成功，但以下 Root 在当前电脑上无效，请重新指定后 Apply Changes：\n{detail}"
+            warning = f"导入成功，但以下 Root 在当前电脑上无效，请重新指定后保存配置：\n{detail}"
             self._log(f"警告：{warning}")
             messagebox.showwarning("项目路径需要修正", warning, parent=self)
 
     def _new_project(self) -> None:
-        if not self._confirm_leave_current():
-            return
-        name = simpledialog.askstring("New Project", "项目名称：", parent=self)
+        name = simpledialog.askstring("新建项目", "项目名称：", parent=self)
         if name is None:
+            return
+        if not self._confirm_leave_current():
             return
         try:
             self.controller.new_project(name)
@@ -740,39 +1010,27 @@ class IBISApplicationView(tk.Tk):
             return
         self._selected_module = None
         self._show_main()
-        self._log("New Project：已创建内部空项目。完整 Schema 编辑将在 UI-2 实现。")
+        self._log("新建项目：已创建内部空项目。完整 Schema 编辑将在 UI-2 实现。")
 
     def _confirm_leave_current(self) -> bool:
         if not self.controller.project:
             return True
-        if self.controller.is_dirty:
+        if self.controller.has_unsaved_changes:
             answer = messagebox.askyesnocancel(
-                "未 Apply 的修改",
-                "存在尚未 Apply 的修改。\n是：Apply 并保存\n否：丢弃全部未保存修改\n取消：返回项目",
+                "有未保存修改",
+                "当前项目有未保存修改。\n是：验证并保存配置\n否：放弃修改并继续\n取消：返回当前项目",
                 parent=self,
             )
             if answer is None:
                 return False
             if answer:
                 try:
-                    self.controller.apply_changes()
-                    self.controller.save_project()
+                    self.controller.save_configuration()
                 except UIProjectError as exc:
                     self._show_error(exc)
                     return False
             else:
                 self.controller.discard_draft()
-                return True
-        if self.controller.has_unsaved_applied_changes:
-            answer = messagebox.askyesnocancel("未保存项目", "项目存在尚未保存的生效配置。\n是：保存\n否：不保存\n取消：返回项目", parent=self)
-            if answer is None:
-                return False
-            if answer:
-                try:
-                    self.controller.save_project()
-                except UIProjectError as exc:
-                    self._show_error(exc)
-                    return False
         return True
 
     def _on_close(self) -> None:

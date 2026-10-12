@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "base_fixtures": {
+    "single_module": "inputs/config/ibis_config.xlsx",
+    "four_module": "tests/fixtures/multi_module_project.json"
+  },
+  "derived_scenarios": [
+    {"id": "dual_module", "base": "four_module", "modules": ["IO_DIFF", "IO_SE"]},
+    {"id": "multi_ron", "base": "four_module", "modules": ["IO_DIFF", "OUTC"]},
+    {"id": "directions", "base": "four_module", "generate_types": ["DRV", "RCV", "BOTH"]},
+    {"id": "multi_msi", "base": "four_module", "runtime_fixture": "two_workbooks"},
+    {"id": "multi_sheet", "base": "four_module", "runtime_fixture": "one_workbook_four_sheets"},
+    {"id": "normal_spf", "base": "four_module", "runtime_fixture": "three_corners_per_module"},
+    {"id": "error_spf", "base": "four_module", "runtime_fixture": "missing_duplicate_pin_mismatch"},
+    {"id": "config_error", "base": "single_module", "mutation": "unknown_voltage_domain"},
+    {"id": "stale_path", "base": "single_module", "mutation": "missing_root"}
+  ],
+  "policy": "二进制 Excel 在测试临时目录中按场景生成；所有来源只读，冻结输入与 Golden 不修改。"
+}

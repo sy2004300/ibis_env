@@ -9,11 +9,11 @@ from .runtime import REQUIRED_TEMPLATES, ResourceResolver
 
 
 TEMPLATE_TYPES = {
-    "drv_se.t2b": "DRV / Single-Ended",
-    "drv_diff.t2b": "DRV / Differential",
-    "rcv_se.t2b": "RCV / Single-Ended",
-    "rcv_diff.t2b": "RCV / Differential",
-    "_t2b_config.ini": "Global T2B Config",
+    "drv_se.t2b": "DRV / 单端",
+    "drv_diff.t2b": "DRV / 差分",
+    "rcv_se.t2b": "RCV / 单端",
+    "rcv_diff.t2b": "RCV / 差分",
+    "_t2b_config.ini": "全局 T2B 配置",
 }
 
 

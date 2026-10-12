@@ -4,11 +4,12 @@ import copy
 from pathlib import Path
 from typing import Any
 
-from .errors import ProjectStateError, ProjectValidationError
+from .errors import ProjectStateError, ProjectValidationError, ResourceError
 from .excel_importer import ExcelImporter
 from .models import EXTERNAL_ROOT_NAMES, ProjectDocument, build_case_tree, empty_config_payload, utc_now, validate_config_payload
 from .project_store import ProjectStore
 from .runtime import ResourceResolver
+from .status import ConfigStatus
 from .template_service import TemplateResourceService
 
 
@@ -28,11 +29,13 @@ class ProjectController:
         self.project: ProjectDocument | None = None
         self.draft: dict[str, Any] | None = None
         self.has_unsaved_applied_changes = False
+        self.validation_error: str | None = None
 
     def _activate(self, project: ProjectDocument, unsaved: bool) -> ProjectDocument:
         self.project = project
         self.draft = project.clone_config()
         self.has_unsaved_applied_changes = unsaved
+        self.validation_error = None
         return project
 
     def import_excel(self, path: Path, project_name: str | None = None) -> ProjectDocument:
@@ -42,7 +45,14 @@ class ProjectController:
         return self._activate(ProjectDocument.create(name, "ui", empty_config_payload()), unsaved=True)
 
     def load_project(self, project_id: str) -> ProjectDocument:
-        return self._activate(self.store.load(project_id), unsaved=False)
+        project = self.store.load(project_id)
+        self.store.remember_recent(project)
+        return self._activate(project, unsaved=False)
+
+    def open_project_file(self, path: Path) -> ProjectDocument:
+        project = self.store.load_file(path)
+        self.store.remember_recent(project)
+        return self._activate(project, unsaved=False)
 
     def load_recent(self) -> ProjectDocument | None:
         project = self.store.load_recent()
@@ -71,6 +81,20 @@ class ProjectController:
             return "DIRTY"
         return "APPLIED / 未保存" if self.has_unsaved_applied_changes else "SAVED"
 
+    @property
+    def config_status(self) -> ConfigStatus | None:
+        if self.project is None:
+            return None
+        if self.validation_error:
+            return ConfigStatus.ERROR
+        if self.is_dirty or self.has_unsaved_applied_changes:
+            return ConfigStatus.DIRTY
+        return ConfigStatus.SAVED
+
+    @property
+    def has_unsaved_changes(self) -> bool:
+        return self.is_dirty or self.has_unsaved_applied_changes
+
     def module(self, name: str, draft: bool = True) -> dict[str, Any]:
         project, working = self._require_active()
         config = working if draft else project.config
@@ -80,6 +104,7 @@ class ProjectController:
         raise ProjectValidationError("PROJECT_MODULE_NOT_FOUND", f"项目中不存在模块：{name}")
 
     def update_module(self, name: str, field: str, value: Any) -> None:
+        self.validation_error = None
         module = self.module(name, draft=True)
         if field in {"generate_type", "ibis_io_voltage_domain", "ibis_vih_voltage_domain"}:
             module[field] = str(value).strip().upper() if field == "generate_type" else str(value).strip()
@@ -101,6 +126,7 @@ class ProjectController:
         raise ProjectValidationError("PROJECT_FIELD_UNSUPPORTED", f"UI-1 不支持编辑字段：{field}")
 
     def update_root(self, name: str, value: str) -> None:
+        self.validation_error = None
         _project, draft = self._require_active()
         if name not in {"model", "msi", "spf", "template"}:
             raise ProjectValidationError("PROJECT_FIELD_UNSUPPORTED", f"未知 Root：{name}")
@@ -128,16 +154,22 @@ class ProjectController:
 
     def apply_changes(self) -> None:
         project, draft = self._require_active()
-        validate_config_payload(draft, check_paths=True)
-        self.templates.effective_root(draft)
+        try:
+            validate_config_payload(draft, check_paths=True)
+            self.templates.effective_root(draft)
+        except (ProjectValidationError, ResourceError) as exc:
+            self.validation_error = str(exc)
+            raise
         project.config = copy.deepcopy(draft)
         project.updated_at = utc_now()
         self.draft = project.clone_config()
         self.has_unsaved_applied_changes = True
+        self.validation_error = None
 
     def discard_draft(self) -> None:
         project, _draft = self._require_active()
         self.draft = project.clone_config()
+        self.validation_error = None
 
     def save_project(self) -> Path:
         project, _draft = self._require_active()
@@ -146,6 +178,39 @@ class ProjectController:
         path = self.store.save(project)
         self.has_unsaved_applied_changes = False
         return path
+
+    def save_configuration(self) -> Path:
+        """Validate, apply and persist the current draft as one user operation.
+
+        The active snapshot and draft are mutated only after ProjectStore has
+        completed its atomic write. Validation or storage failures therefore
+        preserve both the previous applied snapshot and the user's draft.
+        """
+        project, draft = self._require_active()
+        candidate = copy.deepcopy(draft)
+        try:
+            validate_config_payload(candidate, check_paths=True)
+            self.templates.effective_root(candidate)
+        except (ProjectValidationError, ResourceError) as exc:
+            self.validation_error = str(exc)
+            raise
+        staged = copy.deepcopy(project)
+        staged.config = candidate
+        staged.updated_at = utc_now()
+        path = self.store.save(staged)
+        self.project = staged
+        self.draft = staged.clone_config()
+        self.has_unsaved_applied_changes = False
+        self.validation_error = None
+        return path
+
+    def recent_projects(self):
+        return self.store.recent_project_records()
+
+    def leave_warning(self) -> str | None:
+        if self.has_unsaved_changes:
+            return "当前项目有未保存修改。请选择保存配置、放弃修改或取消。"
+        return None
 
     def case_tree(self) -> list[dict[str, Any]]:
         _project, draft = self._require_active()

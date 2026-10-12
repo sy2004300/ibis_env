@@ -72,6 +72,7 @@ class CrossPlatformRuntimeTests(unittest.TestCase):
         self.assertFalse(report["gui_window_created"])
         self.assertEqual(report["project_schema_version"], 1)
         self.assertEqual(report["demo_modules"], ["demo_phy_io_diff"])
+        self.assertEqual(report["model_files"], 3)
 
     def test_windowed_executable_does_not_require_console_streams(self) -> None:
         with patch("ibis_ui.app.sys.stdout", None), patch("ibis_ui.app.sys.stderr", None):
