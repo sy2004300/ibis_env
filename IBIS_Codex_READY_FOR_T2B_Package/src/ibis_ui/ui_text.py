@@ -4,6 +4,7 @@ from __future__ import annotations
 TEXT = {
     "app_subtitle": "IBIS 自动化配置工具 · UI 阶段 1.2.1 验收修订",
     "home": "项目首页",
+    "back_to_start": "← 返回启动首页",
     "new_project": "新建项目",
     "import_config": "导入 Config Excel",
     "open_project": "打开项目",
@@ -33,4 +34,5 @@ TOOLTIPS = {
     "save_config": "检查并保存当前软件项目中的修改，不会修改原始 Config Excel。",
     "input_check": "输入检查：重新扫描并检查 MSI、SPF 和 Model 来源。",
     "home": "返回项目首页：保留当前项目和未保存的编辑草稿。",
+    "back_to_start": "关闭当前项目并返回启动首页；如有未保存修改会先询问。",
 }

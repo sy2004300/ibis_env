@@ -55,6 +55,10 @@ class IBISApplicationView(tk.Tk):
                 raise RuntimeError("GUI Smoke 未加载项目")
             if not self.status_message.winfo_ismapped():
                 raise RuntimeError("固定底部操作栏不可见")
+            if not self.back_to_start_button.winfo_ismapped():
+                raise RuntimeError("返回启动首页按钮不可见")
+            if not self.delete_project_button.winfo_ismapped():
+                raise RuntimeError("删除项目按钮不可见")
             bbox = self.config_scroll.canvas.bbox("all")
             if not bbox or bbox[3] - bbox[1] <= self.config_scroll.canvas.winfo_height():
                 raise RuntimeError("Config 长表单未形成可滚动区域")
@@ -109,6 +113,13 @@ class IBISApplicationView(tk.Tk):
 
         recent = ttk.LabelFrame(panel, text="最近项目", padding=12, style="Card.TLabelframe")
         recent.pack(fill="both", expand=True, pady=(0, 12))
+        ttk.Label(
+            recent,
+            text="选中项目后，可在下方直接打开、从列表移除或删除项目（删除仅移动软件项目到回收区，不删除外部输入文件）。",
+            style="Panel.TLabel",
+            foreground=MUTED,
+            wraplength=1050,
+        ).pack(anchor="w", pady=(0, 6))
         self.start_recent_tree = self._tree_with_scrollbars(
             recent,
             ("name", "source", "updated", "status"),
@@ -170,26 +181,49 @@ class IBISApplicationView(tk.Tk):
     def _build_topbar(self) -> None:
         bar = ttk.Frame(self._content, padding=(12, 9), style="Toolbar.TFrame")
         bar.pack(fill="x")
-        home = ttk.Button(bar, text=TEXT["home"], command=self._go_home, style="Secondary.TButton")
-        home.pack(side="left", padx=(0, 10))
+        navigation = ttk.Frame(bar, style="Toolbar.TFrame")
+        navigation.pack(fill="x")
+        self.back_to_start_button = ttk.Button(
+            navigation,
+            text=TEXT["back_to_start"],
+            command=self._close_current_project,
+            style="Secondary.TButton",
+        )
+        self.back_to_start_button.pack(side="left", padx=(0, 6))
+        Tooltip(self.back_to_start_button, TOOLTIPS["back_to_start"])
+        home = ttk.Button(navigation, text=TEXT["home"], command=self._go_home, style="Secondary.TButton")
+        home.pack(side="left", padx=(0, 6))
         Tooltip(home, TOOLTIPS["home"])
-        self.project_label = ttk.Label(bar, text="", style="Panel.TLabel", font=(self.ui_font, 11, "bold"))
+        self.delete_project_button = ttk.Button(
+            navigation,
+            text=TEXT["delete_project"],
+            command=self._delete_current_project,
+            style="Danger.TButton",
+        )
+        self.delete_project_button.pack(side="left", padx=(0, 10))
+        Tooltip(self.delete_project_button, TOOLTIPS["delete_project"])
+        self.project_label = ttk.Label(navigation, text="", style="Panel.TLabel", font=(self.ui_font, 11, "bold"))
         self.project_label.pack(side="left")
-        self.state_label = ttk.Label(bar, text="", style="StatusSaved.TLabel", background=PANEL)
+        self.state_label = ttk.Label(navigation, text="", style="StatusSaved.TLabel", background=PANEL)
         self.state_label.pack(side="left", padx=16)
+        about = ttk.Button(navigation, text=TEXT["about"], command=self._show_about, style="Secondary.TButton")
+        about.pack(side="right")
+
+        actions = ttk.Frame(bar, style="Toolbar.TFrame")
+        actions.pack(fill="x", pady=(6, 0))
         for key, command, primary in (
-            ("about", self._show_about, False),
-            ("advanced", self._open_advanced_settings, False),
-            ("save_config", self._save, True),
-            ("close_project", self._close_current_project, False),
-            ("open_project", self._open_project, False),
-            ("import_config", self._import_excel, False),
             ("new_project", self._new_project, False),
+            ("import_config", self._import_excel, False),
+            ("open_project", self._open_project, False),
+            ("advanced", self._open_advanced_settings, False),
         ):
-            button = ttk.Button(bar, text=TEXT[key], command=command, style="Primary.TButton" if primary else "Secondary.TButton")
-            button.pack(side="right", padx=3)
+            button = ttk.Button(actions, text=TEXT[key], command=command, style="Primary.TButton" if primary else "Secondary.TButton")
+            button.pack(side="left", padx=(0, 6))
             if key in TOOLTIPS:
                 Tooltip(button, TOOLTIPS[key])
+        save = ttk.Button(actions, text=TEXT["save_config"], command=self._save, style="Primary.TButton")
+        save.pack(side="right")
+        Tooltip(save, TOOLTIPS["save_config"])
 
     def _build_bottom(self) -> None:
         bar = ttk.Frame(self._content, padding=(12, 8), style="Toolbar.TFrame")
@@ -1176,14 +1210,21 @@ class IBISApplicationView(tk.Tk):
             return
         if not self._confirm_leave_current():
             return
+        current = self.controller.project
+        current_id = current.project_id if current else None
         try:
-            self.controller.import_excel(Path(path))
+            project = self.controller.import_excel(Path(path))
         except UIProjectError as exc:
             self._show_error(exc)
             return
         self._selected_module = None
         self._show_main()
-        self._log(f"导入 Config Excel：{path}（原文件只读，未修改）")
+        if current_id is not None and project.project_id == current_id:
+            result = f"Config Excel 已导入当前项目“{project.name}”；项目名称和 UUID 均已保留，原文件只读且未修改。"
+        else:
+            result = f"Config Excel 已导入新项目“{project.name}”；原文件只读且未修改。"
+        self.status_message.configure(text=result, foreground=PASS)
+        self._log(result)
         invalid_roots = self.controller.invalid_roots()
         if invalid_roots:
             detail = "\n".join(f"{name.upper()}: {value or '(未设置)'}" for name, value in invalid_roots.items())
@@ -1247,6 +1288,37 @@ class IBISApplicationView(tk.Tk):
         self._selected_module = None
         self._tree_modules.clear()
         self._show_start()
+
+    def _delete_current_project(self) -> None:
+        project = self.controller.project
+        if project is None:
+            return
+        if not messagebox.askyesno(
+            "删除项目",
+            f"确定删除当前项目“{project.name}”吗？\n\n"
+            "项目会从 IBIS Automation 工作区移入回收区，可用于恢复。\n"
+            "不会删除原始 Config Excel、MSI、SPF、Model 等输入文件。",
+            parent=self,
+        ):
+            return
+        action = self._request_close_action()
+        if action == "cancel":
+            return
+        try:
+            trash_path = self.controller.close_and_delete_active_project(action)
+        except UIProjectError as exc:
+            self._show_error(exc)
+            return
+        if trash_path is None and self.controller.project is not None:
+            return
+        self._selected_module = None
+        self._tree_modules.clear()
+        self._show_start()
+        if trash_path is None:
+            message = f"未保存项目“{project.name}”已关闭；该项目尚无工作区文件，因此没有需要移动的内容。"
+        else:
+            message = f"项目“{project.name}”已移入软件回收区。\n\n回收位置：\n{trash_path}"
+        messagebox.showinfo("项目已删除", message, parent=self)
 
     def _confirm_leave_current(self) -> bool:
         if not self.controller.project:

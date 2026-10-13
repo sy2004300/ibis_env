@@ -139,6 +139,43 @@ class UIPhase12Tests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "请先关闭项目"):
             self.controller.delete_project(project.project_id)
 
+    def test_active_project_can_be_closed_and_soft_deleted_from_visible_action(self) -> None:
+        project = self.controller.import_excel(DEMO_CONFIG, "当前项目删除")
+        saved = self.controller.save_configuration()
+
+        trash_path = self.controller.close_and_delete_active_project("discard")
+
+        self.assertIsNone(self.controller.project)
+        self.assertFalse(saved.parent.exists())
+        self.assertTrue((trash_path / "project.json").is_file())
+
+    def test_never_saved_project_delete_only_closes_transient_project(self) -> None:
+        project = self.controller.new_project("未保存项目")
+
+        trash_path = self.controller.close_and_delete_active_project("discard")
+
+        self.assertIsNone(trash_path)
+        self.assertIsNone(self.controller.project)
+        self.assertFalse(self.store.project_dir(project.project_id).exists())
+
+    def test_import_into_named_project_preserves_name_uuid_and_source_excel(self) -> None:
+        source_before = DEMO_CONFIG.read_bytes()
+        project = self.controller.new_project("用户自定义项目名")
+
+        imported = self.controller.import_excel(DEMO_CONFIG)
+
+        self.assertEqual(imported.project_id, project.project_id)
+        self.assertEqual(imported.name, "用户自定义项目名")
+        self.assertEqual(imported.mode, "excel")
+        self.assertEqual(imported.source_excel.path, str(DEMO_CONFIG.resolve()))
+        self.assertEqual(self.controller.module(MODULE)["tr"]["TYP"], "20p")
+        saved = self.controller.save_configuration()
+        reloaded = ProjectController(self.store, resources=self.resources)
+        reloaded.load_project(project.project_id)
+        self.assertEqual(reloaded.project.name, "用户自定义项目名")
+        self.assertEqual(reloaded.project.source_excel.path, str(DEMO_CONFIG.resolve()))
+        self.assertEqual(DEMO_CONFIG.read_bytes(), source_before)
+
     def test_recursive_msi_scan_multi_workbook_sheet_and_ambiguity(self) -> None:
         config = json.loads(MULTI_MODULE.read_text(encoding="utf-8"))
         config["modules"] = config["modules"][:2]
@@ -219,6 +256,8 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertEqual(TEXT["save_config"], "保存项目")
         self.assertEqual(TEXT["input_files"], "输入文件")
         self.assertIn("不会修改原始 Config Excel", TOOLTIPS["save_config"])
+        self.assertEqual(TEXT["back_to_start"], "← 返回启动首页")
+        self.assertIn("返回启动首页", TOOLTIPS["back_to_start"])
         self.assertNotIn("Apply", " ".join(TEXT.values()))
 
     def test_fixture_catalog_covers_required_current_scenarios(self) -> None:

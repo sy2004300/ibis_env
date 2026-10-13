@@ -42,13 +42,12 @@ class ProjectController:
     def import_excel(self, path: Path, project_name: str | None = None) -> ProjectDocument:
         imported = self.importer.import_project(path, project_name)
         current = self.project
-        if (
-            current is not None
-            and current.mode == "excel"
-            and current.source_excel is not None
-            and Path(current.source_excel.path) == path.expanduser().resolve()
-            and project_name is None
-        ):
+        # The normal UI action imports Config into the project that is already
+        # open.  Its user-assigned identity must not silently become the Excel
+        # filename (or a new UUID).  Supplying project_name explicitly keeps
+        # the importer API's create-a-new-project behavior for automation and
+        # tests that intentionally create separate projects.
+        if current is not None and project_name is None:
             imported.project_id = current.project_id
             imported.name = current.name
             imported.created_at = current.created_at
@@ -268,6 +267,20 @@ class ProjectController:
                 "当前项目正在打开，请先关闭项目，再从项目首页删除。",
             )
         return self.store.delete_project(project_id)
+
+    def close_and_delete_active_project(self, disposition: str = "cancel") -> Path | None:
+        """Close and soft-delete the active managed project as one UI flow."""
+
+        project, _draft = self._require_active()
+        project_id = project.project_id
+        if not self.close_project(disposition):
+            return None
+        # A newly-created project may never have been saved.  In that case
+        # closing it is the complete delete operation; there is no managed
+        # directory (and no external input) to move into the trash.
+        if not self.store.project_dir(project_id).is_dir():
+            return None
+        return self.delete_project(project_id)
 
     def leave_warning(self) -> str | None:
         if self.has_unsaved_changes:

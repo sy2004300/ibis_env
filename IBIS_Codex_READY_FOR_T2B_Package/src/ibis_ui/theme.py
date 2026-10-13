@@ -97,6 +97,12 @@ def apply_modern_style(root: tk.Misc) -> str:
         foreground=[("disabled", "#f7faff")],
     )
     style.configure("Secondary.TButton", background=PANEL, foreground=TEXT, bordercolor=BORDER)
+    style.configure("Danger.TButton", background=PANEL, foreground=FAIL, bordercolor=FAIL)
+    style.map(
+        "Danger.TButton",
+        background=[("active", "#fff0f0"), ("pressed", "#ffe2e2")],
+        foreground=[("disabled", "#d99a9d")],
+    )
     style.configure("Treeview", rowheight=28, background=PANEL, fieldbackground=PANEL, foreground=TEXT)
     style.configure("Treeview.Heading", background="#eef3f8", foreground=TEXT, font=(family, 9, "bold"), padding=(6, 5))
     style.map("Treeview", background=[("selected", "#dcecff")], foreground=[("selected", TEXT)])
