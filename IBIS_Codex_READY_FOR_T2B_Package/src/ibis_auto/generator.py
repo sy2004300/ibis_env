@@ -120,7 +120,7 @@ def _validate_alias_sources(config: Config, module: str, direction: str, pins: l
 
 
 def _template(config: Config, plan: ModulePlan, direction: str, impedance: int, template_type: str, top: str) -> tuple[str, str]:
-    path = config.roots["template"] / f"{template_type}.t2b"
+    path = config.template_paths.get((plan.name, direction), config.roots["template"] / f"{template_type}.t2b")
     if not path.is_file(): raise IbisError("TEMPLATE_MISSING", f"T2B 模板缺失：{path}")
     text = path.read_text()
 
