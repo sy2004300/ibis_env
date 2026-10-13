@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - codex/ibis-ui-phase1-2
+      - codex/ibis-ui-full-workflow
   pull_request:
     branches:
       - main
@@ -34,6 +34,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Linux runtime dependency
+        run: python -m pip install --disable-pip-version-check "openpyxl==3.1.5"
+
       - name: Run Linux unit, template, robustness and UI tests
         env:
           PYTHONPATH: src
@@ -56,7 +59,7 @@ jobs:
       - name: Upload Linux compatibility snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: ui121-platform-linux-${{ github.run_id }}
+          name: full-workflow-platform-linux-${{ github.run_id }}
           path: IBIS_Codex_READY_FOR_T2B_Package/build/platform-linux.json
           if-no-files-found: error
 
@@ -140,7 +143,7 @@ jobs:
       - name: Verify package structure
         shell: pwsh
         run: |
-          $package = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_2_1"
+          $package = Join-Path $PWD "dist/IBIS_Automation_Windows_Full_Workflow"
           $required = @(
             "IBIS_Automation.exe",
             "_internal",
@@ -151,18 +154,19 @@ jobs:
             "_internal/resources/templates/t2b/drv_diff.t2b",
             "_internal/resources/templates/t2b/drv_se.t2b",
             "_internal/resources/templates/t2b/rcv_diff.t2b",
-            "_internal/resources/templates/t2b/rcv_se.t2b"
+            "_internal/resources/templates/t2b/rcv_se.t2b",
+            "_internal/resources/golden/demo_phy_io_diff/drv/30ohm_ibis/demo_phy_io_diff_drv_ron30.t2b"
           )
           foreach ($relative in $required) {
             $target = Join-Path $package $relative
             if (-not (Test-Path $target)) { throw "Missing package resource: $target" }
           }
-          if (-not (Test-Path "dist/IBIS_Automation_Windows_UI1_2_1.zip")) { throw "Windows ZIP missing" }
+          if (-not (Test-Path "dist/IBIS_Automation_Windows_Full_Workflow.zip")) { throw "Windows ZIP missing" }
 
       - name: Run packaged EXE headless check
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_2_1/IBIS_Automation.exe"
+          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_Full_Workflow/IBIS_Automation.exe"
           $workspace = Join-Path $env:RUNNER_TEMP "ibis-exe-workspace"
           $report = Join-Path $env:RUNNER_TEMP "ibis-exe-check.json"
           $process = Start-Process -FilePath $exe -ArgumentList @("--check", "--workspace", $workspace, "--check-report", $report) -Wait -PassThru
@@ -173,6 +177,7 @@ jobs:
           if ($result.mode -ne "HEADLESS" -or $result.gui_window_created -ne $false) { throw "Headless/GUI status is inaccurate" }
           if ($result.frozen -ne $true) { throw "Packaged runtime did not report frozen=true" }
           if ($result.git_commit -ne $env:GITHUB_SHA) { throw "Embedded commit does not match workflow commit" }
+          if ($result.full_workflow_case_status -ne "PASS") { throw "Packaged full workflow Golden Case 001 is not PASS" }
           "Headless EXE check: PASS" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Run real Tk window smoke test
@@ -180,7 +185,7 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_2_1/IBIS_Automation.exe"
+          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_Full_Workflow/IBIS_Automation.exe"
           $workspace = Join-Path $env:RUNNER_TEMP "ibis-exe-gui-workspace"
           $process = Start-Process -FilePath $exe -ArgumentList @("--smoke-test", "--workspace", $workspace) -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Tk window smoke failed with exit code $($process.ExitCode)" }
@@ -199,17 +204,17 @@ jobs:
       - name: Upload Windows compatibility snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: ui121-platform-windows-${{ github.run_id }}
+          name: full-workflow-platform-windows-${{ github.run_id }}
           path: IBIS_Codex_READY_FOR_T2B_Package/build/platform-windows.json
           if-no-files-found: error
 
       - name: Upload downloadable Windows ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: IBIS_Automation_Windows_UI1_2_1
+          name: IBIS_Automation_Windows_Full_Workflow
           # GitHub creates the downloadable artifact ZIP. Uploading the onedir
           # contents avoids a ZIP-inside-ZIP and makes one extraction sufficient.
-          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_UI1_2_1/
+          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_Full_Workflow/
           if-no-files-found: error
           compression-level: 6
           retention-days: 30
@@ -224,13 +229,13 @@ jobs:
       - name: Download Linux snapshot
         uses: actions/download-artifact@v4
         with:
-          name: ui121-platform-linux-${{ github.run_id }}
+          name: full-workflow-platform-linux-${{ github.run_id }}
           path: linux
 
       - name: Download Windows snapshot
         uses: actions/download-artifact@v4
         with:
-          name: ui121-platform-windows-${{ github.run_id }}
+          name: full-workflow-platform-windows-${{ github.run_id }}
           path: windows
 
       - name: Compare path-neutral JSON exactly

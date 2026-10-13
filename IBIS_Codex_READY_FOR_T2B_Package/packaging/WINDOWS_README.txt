@@ -1,9 +1,9 @@
-IBIS Automation Windows UI-1.2.1 Revision
+IBIS Automation Windows Full Workflow 0.4.0
 ==============================
 
 运行方式
 --------
-1. 将整个 IBIS_Automation_Windows_UI1_2_1 文件夹完整解压。
+1. 将整个 IBIS_Automation_Windows_Full_Workflow 文件夹完整解压。
 2. 双击 IBIS_Automation.exe。
 3. 不需要安装 Python，也不要单独移动 EXE；_internal 是运行所需目录。
 
@@ -26,6 +26,7 @@ T2B 母模板默认使用软件内置资源；外部模板 Root 覆盖位于“�
 --------
 _internal\resources\templates\t2b 中包含只读 T2B 母模板。
 _internal\resources\inputs 中仅包含仓库提供的 synthetic Demo Config/MSI/SPF/Model 数据。
+_internal\resources\golden 中包含冻结的 Case 001 Golden，只用于真实比较。
 可使用内置 Demo Config 进行界面测试：
 _internal\resources\inputs\config\ibis_config.xlsx
 
@@ -34,6 +35,8 @@ _internal\resources\inputs\config\ibis_config.xlsx
 Start-Process .\IBIS_Automation.exe -ArgumentList '--check --check-report check.json' -Wait
 检查生成的 check.json，其中 status 应为 PASS、mode 应为 HEADLESS。
 
-当前阶段边界
-------------
-本包是 UI Phase 1.2。Excel 导出/回写与 MSI Merge、T2B 工作模板编辑/历史库、生成、监控、真实 T2B、LSF 和 C_comp_view 尚未实现，界面会明确标记“暂未开放”。
+当前能力与边界
+--------------
+支持 Config Section 1～10 编辑/导出、MSI Master Merge、项目工作模板及历史、
+Generate Selected/All、READY_FOR_T2B 文件检查、Golden Compare、STALE 与报告。
+本软件不会运行真实 T2B、LSF，不生成 .ibs 或 C_comp_view。
