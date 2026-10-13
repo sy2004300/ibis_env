@@ -14,7 +14,7 @@ from .errors import ProjectValidationError
 from .template_selection import ensure_template_selections, validate_template_selections
 
 
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 CORNER_NAMES = ("MAX", "TYP", "MIN")
 ROOT_NAMES = ("model", "msi", "spf", "template")
 EXTERNAL_ROOT_NAMES = ("model", "msi", "spf")
@@ -51,6 +51,54 @@ def empty_config_payload() -> dict[str, Any]:
         "spice_type": "spectre",
         "spice_command": "spectre +preset=mx +spice +mt=4",
     }
+
+
+def empty_workflow_payload() -> dict[str, Any]:
+    """Project-local state which is not part of Config Excel Section 1-10."""
+
+    return {
+        "msi_master": {
+            "path": "",
+            "sources": [],
+            "mappings": [],
+            "last_merge_at": "",
+        },
+        "working_templates": {},
+        "template_library": {},
+        "generation": {
+            "output_root": "",
+            "cases": {},
+            "tasks": [],
+        },
+    }
+
+
+def migrate_project_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Migrate persisted UI-1 projects without changing their config meaning."""
+
+    migrated = copy.deepcopy(data)
+    version = migrated.get("schema_version", 1)
+    if version == 1:
+        migrated["workflow"] = empty_workflow_payload()
+        migrated["schema_version"] = PROJECT_SCHEMA_VERSION
+        version = PROJECT_SCHEMA_VERSION
+    if version != PROJECT_SCHEMA_VERSION:
+        raise ProjectValidationError(
+            "PROJECT_SCHEMA_VERSION_UNSUPPORTED",
+            f"不支持的项目 Schema 版本：{version!r}",
+        )
+    workflow = migrated.get("workflow")
+    if not isinstance(workflow, dict):
+        migrated["workflow"] = empty_workflow_payload()
+    else:
+        defaults = empty_workflow_payload()
+        for key, value in defaults.items():
+            workflow.setdefault(key, copy.deepcopy(value))
+        if not isinstance(workflow.get("generation"), dict):
+            workflow["generation"] = copy.deepcopy(defaults["generation"])
+        for key, value in defaults["generation"].items():
+            workflow["generation"].setdefault(key, copy.deepcopy(value))
+    return migrated
 
 
 def core_config_to_payload(config: Config) -> dict[str, Any]:
@@ -119,11 +167,17 @@ def validate_config_payload(payload: dict[str, Any], check_paths: bool = False) 
     voltage_order = payload.get("voltage_order")
     if not isinstance(modules, list) or not isinstance(voltage_order, list):
         raise ProjectValidationError("PROJECT_SCHEMA_INVALID", "项目 Modules 或 Voltage Domain 格式错误")
+    if any(not str(name).strip() for name in voltage_order) or len({str(name).casefold() for name in voltage_order}) != len(voltage_order):
+        raise ProjectValidationError("PROJECT_VOLTAGE_DOMAIN_INVALID", "Voltage Domain 不能为空或重复")
 
     for name in CORNER_NAMES:
         corner = _require_mapping(corners.get(name), f"Corner {name}")
         voltages = _require_mapping(corner.get("voltages"), f"Corner {name} Voltage")
         _require_mapping(corner.get("calibration"), f"Corner {name} Calibration")
+        if modules:
+            for field in ("process", "temperature", "spf_key"):
+                if not str(corner.get(field, "")).strip():
+                    raise ProjectValidationError("PROJECT_CORNER_FIELD_MISSING", f"Corner {name} 缺少 {field}")
         for domain in voltage_order:
             raw = str(voltages.get(domain, "")).strip()
             try:
@@ -187,6 +241,39 @@ def validate_config_payload(payload: dict[str, Any], check_paths: bool = False) 
                 if not str(values.get(corner_name, "")).strip():
                     raise ProjectValidationError("PROJECT_TIMING_MISSING", f"模块 {name} 缺少 {label} {corner_name}")
 
+    options = payload.get("simulation_options")
+    if not isinstance(options, list) or any(not isinstance(value, str) or not value.strip() for value in options):
+        raise ProjectValidationError("PROJECT_SIMULATION_OPTION_INVALID", "Simulation Option 必须是非空的有序文本行")
+
+    row_rules = {
+        "aliases": ({"module", "direction", "original_pin", "alias"}, {"DRV", "RCV", "BOTH"}),
+        "appends": ({"module", "direction", "body"}, {"DRV", "RCV", "BOTH"}),
+        "overrides": ({"module", "direction", "corner", "signal", "value"}, {"DRV", "RCV", "BOTH"}),
+        "attribute_overrides": ({"module", "signal", "attribute", "value"}, None),
+        "msi_mappings": ({"module", "file", "sheet", "column"}, None),
+    }
+    known_modules = {str(row.get("name", "")).casefold() for row in modules}
+    for field, (required, directions) in row_rules.items():
+        rows = payload.get(field)
+        if not isinstance(rows, list):
+            raise ProjectValidationError("PROJECT_SCHEMA_INVALID", f"项目字段 {field} 必须是列表")
+        for index, row in enumerate(rows, 1):
+            row = _require_mapping(row, f"{field} 第 {index} 行")
+            missing = [name for name in required if not str(row.get(name, "")).strip()]
+            if missing:
+                raise ProjectValidationError("PROJECT_TABLE_ROW_INVALID", f"{field} 第 {index} 行缺少字段：{', '.join(missing)}")
+            if str(row["module"]).casefold() not in known_modules:
+                raise ProjectValidationError("PROJECT_TABLE_MODULE_INVALID", f"{field} 第 {index} 行引用未知 Module：{row['module']}")
+            if directions and str(row["direction"]).upper() not in directions:
+                raise ProjectValidationError("PROJECT_TABLE_DIRECTION_INVALID", f"{field} 第 {index} 行 Direction 非法：{row['direction']}")
+            if field == "overrides" and str(row["corner"]).upper() not in {"MAX", "TYP", "MIN", "ALL"}:
+                raise ProjectValidationError("PROJECT_OVERRIDE_CORNER_INVALID", f"Override 第 {index} 行 Corner 非法：{row['corner']}")
+            if field == "attribute_overrides" and str(row["attribute"]).upper() != "POWER_DOMAIN":
+                raise ProjectValidationError("MSI_ATTRIBUTE_OVERRIDE_INVALID", f"当前 Core 不支持属性：{row['attribute']}")
+    mapping_modules = [str(row["module"]).casefold() for row in payload["msi_mappings"]]
+    if len(mapping_modules) != len(set(mapping_modules)):
+        raise ProjectValidationError("PROJECT_MSI_MAPPING_DUPLICATE", "同一 Module 只能有一条显式 MSI Mapping")
+
     validate_template_selections(payload)
 
 
@@ -214,6 +301,7 @@ class ProjectDocument:
     updated_at: str
     source_excel: SourceExcel | None = None
     schema_version: int = PROJECT_SCHEMA_VERSION
+    workflow: dict[str, Any] | None = None
 
     @classmethod
     def create(
@@ -232,7 +320,17 @@ class ProjectDocument:
         payload = copy.deepcopy(config if config is not None else empty_config_payload())
         ensure_template_selections(payload)
         validate_config_payload(payload, check_paths=False)
-        return cls(str(uuid4()), project_name, mode, payload, now, now, source_excel)
+        return cls(
+            str(uuid4()),
+            project_name,
+            mode,
+            payload,
+            now,
+            now,
+            source_excel,
+            PROJECT_SCHEMA_VERSION,
+            empty_workflow_payload(),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -244,12 +342,12 @@ class ProjectDocument:
             "updated_at": self.updated_at,
             "source_excel": self.source_excel.to_dict() if self.source_excel else None,
             "config": copy.deepcopy(self.config),
+            "workflow": copy.deepcopy(self.workflow or empty_workflow_payload()),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProjectDocument:
-        if data.get("schema_version") != PROJECT_SCHEMA_VERSION:
-            raise ProjectValidationError("PROJECT_SCHEMA_VERSION_UNSUPPORTED", f"不支持的项目 Schema 版本：{data.get('schema_version')!r}")
+        data = migrate_project_payload(data)
         try:
             project_id = str(UUID(str(data["project_id"])))
             name = str(data["name"])
@@ -257,6 +355,7 @@ class ProjectDocument:
             config = copy.deepcopy(data["config"])
             created_at = str(data["created_at"])
             updated_at = str(data["updated_at"])
+            workflow = copy.deepcopy(data["workflow"])
         except (KeyError, TypeError, ValueError) as exc:
             raise ProjectValidationError("PROJECT_SCHEMA_INVALID", f"项目文件格式错误：{exc}") from exc
         if mode not in {"excel", "ui"} or not name.strip():
@@ -268,7 +367,17 @@ class ProjectDocument:
             source_excel = SourceExcel.from_dict(source) if source else None
         except (KeyError, TypeError, ValueError) as exc:
             raise ProjectValidationError("PROJECT_SCHEMA_INVALID", f"项目 Excel 来源格式错误：{exc}") from exc
-        return cls(project_id, name, mode, config, created_at, updated_at, source_excel)
+        return cls(
+            project_id,
+            name,
+            mode,
+            config,
+            created_at,
+            updated_at,
+            source_excel,
+            PROJECT_SCHEMA_VERSION,
+            workflow,
+        )
 
     def clone_config(self) -> dict[str, Any]:
         return copy.deepcopy(self.config)
