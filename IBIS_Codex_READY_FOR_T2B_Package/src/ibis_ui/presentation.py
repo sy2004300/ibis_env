@@ -71,16 +71,16 @@ def build_project_overview(
     )
     if config_status == ConfigStatus.ERROR:
         stage = "配置错误"
-        action = "根据错误提示修正字段，然后重新点击“保存配置”。"
+        action = "根据错误提示修正字段，然后重新点击“保存项目”。"
     elif config_status == ConfigStatus.DIRTY:
         stage = "项目配置编辑"
-        action = "检查当前修改，然后点击“保存配置”。"
+        action = "检查当前修改，然后点击“保存项目”。"
     elif not inputs_ready:
         stage = "输入来源检查"
         action = "打开“输入文件”，修正 MSI、SPF 或 Model 来源问题。"
     else:
-        stage = "T2B 模板配置（UI-3，暂未开放）"
-        action = "当前阶段检查已完成；T2B 工作模板将在 UI-3 开放。"
+        stage = "模板选择"
+        action = "确认 DRV / RCV 使用的 T2B 模板。"
     return ProjectOverview(
         modules,
         branches,

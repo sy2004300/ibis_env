@@ -6,6 +6,7 @@ from typing import Any
 
 from .errors import ResourceError
 from .runtime import REQUIRED_TEMPLATES, ResourceResolver
+from .template_selection import TEMPLATE_CATALOG, definition, effective_template_id, selection_for
 
 
 TEMPLATE_TYPES = {
@@ -62,6 +63,44 @@ class TemplateResourceService:
             return path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             raise ResourceError("TEMPLATE_RESOURCE_READ_FAILED", f"无法读取 T2B 模板：{path}（{exc}）") from exc
+
+    def path_for_id(self, config: dict[str, Any], template_id: str) -> Path:
+        item = definition(template_id)
+        if item is None:
+            raise ResourceError("TEMPLATE_RESOURCE_UNKNOWN", f"未知 T2B Template ID：{template_id}")
+        return self.effective_root(config) / item.filename
+
+    def read_id(self, config: dict[str, Any], template_id: str) -> str:
+        item = definition(template_id)
+        if item is None:
+            raise ResourceError("TEMPLATE_RESOURCE_UNKNOWN", f"未知 T2B Template ID：{template_id}")
+        return self.read(config, item.filename)
+
+    def selection_summary(self, config: dict[str, Any], module: str, direction: str) -> dict[str, Any]:
+        row = selection_for(config, module)
+        direction = direction.upper()
+        choice = row[f"{direction.casefold()}_template"]
+        template_id = effective_template_id(config, module, direction)
+        item = definition(template_id)
+        source = "项目手动选择" if choice.get("mode") == "manual" else (
+            "Config Excel 默认值" if choice.get("config_default_id") == template_id else "软件自动匹配"
+        )
+        return {
+            "module": module,
+            "topology": row.get("topology", ""),
+            "direction": direction,
+            "mode": choice.get("mode", "auto"),
+            "template_id": template_id,
+            "display_name": item.display_name if item else "无法自动匹配",
+            "filename": item.filename if item else "",
+            "source": source if item else "未配置 / Error",
+            "path": self.path_for_id(config, template_id) if item else None,
+        }
+
+    @staticmethod
+    def selectable(direction: str):
+        direction = direction.upper()
+        return [item for item in TEMPLATE_CATALOG if item.direction == direction]
 
     @staticmethod
     def mappings_for(config: dict[str, Any], module: str | None = None) -> list[dict[str, str]]:

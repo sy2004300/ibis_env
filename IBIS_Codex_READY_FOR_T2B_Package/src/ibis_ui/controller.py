@@ -11,6 +11,7 @@ from .project_store import ProjectStore
 from .runtime import ResourceResolver
 from .status import ConfigStatus
 from .template_service import TemplateResourceService
+from .template_selection import merge_manual_selections, selection_for, set_template_choice
 
 
 class ProjectController:
@@ -39,7 +40,20 @@ class ProjectController:
         return project
 
     def import_excel(self, path: Path, project_name: str | None = None) -> ProjectDocument:
-        return self._activate(self.importer.import_project(path, project_name), unsaved=True)
+        imported = self.importer.import_project(path, project_name)
+        current = self.project
+        if (
+            current is not None
+            and current.mode == "excel"
+            and current.source_excel is not None
+            and Path(current.source_excel.path) == path.expanduser().resolve()
+            and project_name is None
+        ):
+            imported.project_id = current.project_id
+            imported.name = current.name
+            imported.created_at = current.created_at
+            imported.config = merge_manual_selections(imported.config, self.draft or current.config)
+        return self._activate(imported, unsaved=True)
 
     def new_project(self, name: str) -> ProjectDocument:
         return self._activate(ProjectDocument.create(name, "ui", empty_config_payload()), unsaved=True)
@@ -51,12 +65,33 @@ class ProjectController:
 
     def open_project_file(self, path: Path) -> ProjectDocument:
         project = self.store.load_file(path)
-        self.store.remember_recent(project)
+        # Advanced browsing may select a JSON outside the managed workspace.
+        # Copy the validated snapshot into ProjectStore without touching the
+        # selected source file, so the readable project selector can reopen it.
+        self.store.save(project)
         return self._activate(project, unsaved=False)
 
     def load_recent(self) -> ProjectDocument | None:
         project = self.store.load_recent()
         return self._activate(project, unsaved=False) if project else None
+
+    def close_project(self, disposition: str = "cancel") -> bool:
+        """Clear only the active project; persisted files and recent history remain."""
+
+        if self.project is None:
+            return True
+        if self.has_unsaved_changes:
+            if disposition == "cancel":
+                return False
+            if disposition == "save":
+                self.save_configuration()
+            elif disposition != "discard":
+                raise ProjectStateError("PROJECT_CLOSE_ACTION_INVALID", f"关闭项目操作非法：{disposition}")
+        self.project = None
+        self.draft = None
+        self.has_unsaved_applied_changes = False
+        self.validation_error = None
+        return True
 
     def _require_active(self) -> tuple[ProjectDocument, dict[str, Any]]:
         if self.project is None or self.draft is None:
@@ -124,6 +159,15 @@ class ProjectController:
             module[parts[0]][parts[1]] = str(value).strip()
             return
         raise ProjectValidationError("PROJECT_FIELD_UNSUPPORTED", f"UI-1 不支持编辑字段：{field}")
+
+    def template_selection(self, module: str) -> dict[str, Any]:
+        _project, draft = self._require_active()
+        return selection_for(draft, module)
+
+    def update_template(self, module: str, direction: str, template_id: str | None) -> None:
+        self.validation_error = None
+        _project, draft = self._require_active()
+        set_template_choice(draft, module, direction, template_id)
 
     def update_root(self, name: str, value: str) -> None:
         self.validation_error = None
@@ -204,12 +248,20 @@ class ProjectController:
         self.validation_error = None
         return path
 
+    def save_project_draft(self) -> Path:
+        """Public UI action: validate, apply and atomically save the project."""
+
+        return self.save_configuration()
+
     def recent_projects(self):
         return self.store.recent_project_records()
 
+    def remove_recent(self, project_id: str) -> None:
+        self.store.remove_recent(project_id)
+
     def leave_warning(self) -> str | None:
         if self.has_unsaved_changes:
-            return "当前项目有未保存修改。请选择保存配置、放弃修改或取消。"
+            return "当前项目有未保存修改。请选择保存项目、放弃修改或取消。"
         return None
 
     def case_tree(self) -> list[dict[str, Any]]:

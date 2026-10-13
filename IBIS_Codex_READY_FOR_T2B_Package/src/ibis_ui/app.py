@@ -19,7 +19,7 @@ from .theme import configure_process_dpi_awareness
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Phase 1.2）")
+    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Phase 1.2.1 Revision）")
     result.add_argument("--workspace", type=Path, help="项目数据 Workspace；默认使用当前系统的用户数据目录")
     result.add_argument("--check", action="store_true", help="执行不创建窗口的安装、资源和 Config 初始化检查")
     result.add_argument("--check-report", type=Path, help="将 --check 结果写入 JSON，供打包验收使用")
@@ -129,8 +129,6 @@ def main(argv: list[str] | None = None) -> int:
         controller = ProjectController(store, resources=resolver)
         if args.smoke_test:
             controller.import_excel(resolver.demo_config, "Windows GUI Smoke")
-        else:
-            controller.load_recent()
         from .view import IBISApplicationView
 
         configure_process_dpi_awareness()

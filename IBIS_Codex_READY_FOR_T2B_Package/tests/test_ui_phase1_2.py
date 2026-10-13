@@ -167,11 +167,11 @@ class UIPhase12Tests(unittest.TestCase):
         )
         self.assertEqual((overview.io_top_count, overview.branch_count, overview.case_count), (1, 1, 1))
         self.assertTrue(overview.inputs_ready)
-        self.assertIn("UI-3", overview.current_stage)
+        self.assertEqual(overview.current_stage, "模板选择")
 
         dirty = build_project_overview(config, ConfigStatus.DIRTY, preview_msi(config), preview_spf(config), preview_models(config))
         self.assertEqual(dirty.current_stage, "项目配置编辑")
-        self.assertIn("保存配置", dirty.recommended_action)
+        self.assertIn("保存项目", dirty.recommended_action)
 
     def test_status_categories_and_generation_default_are_distinct(self) -> None:
         self.assertEqual(status_label(ConfigStatus.DIRTY), "有未保存修改")
@@ -180,9 +180,9 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertNotEqual(status_label(SourceStatus.MATCHED), status_label(GenerationStatus.PASS))
 
     def test_chinese_workflow_text_and_tooltips_are_centralized(self) -> None:
-        self.assertEqual(TEXT["save_config"], "保存配置")
+        self.assertEqual(TEXT["save_config"], "保存项目")
         self.assertEqual(TEXT["input_files"], "输入文件")
-        self.assertIn("项目工作区", TOOLTIPS["save_config"])
+        self.assertIn("不会修改原始 Config Excel", TOOLTIPS["save_config"])
         self.assertNotIn("Apply", " ".join(TEXT.values()))
 
     def test_fixture_catalog_covers_required_current_scenarios(self) -> None:
@@ -194,12 +194,12 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertEqual({row["generate_type"] for row in config["modules"]}, {"DRV", "RCV", "BOTH"})
 
     def test_ui12_version_and_packaging_contract(self) -> None:
-        self.assertEqual(APP_VERSION, "0.1.2")
+        self.assertEqual(APP_VERSION, "0.1.2.1")
         build_script = (PACKAGE_ROOT / "packaging" / "build_windows.py").read_text(encoding="utf-8")
         workflow = (PACKAGE_ROOT.parent / ".github" / "workflows" / "ibis-windows-package.yml").read_text(encoding="utf-8")
-        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_UI1_2"', build_script)
+        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_UI1_2_1"', build_script)
         self.assertIn("codex/ibis-ui-phase1-2", workflow)
-        self.assertIn("IBIS_Automation_Windows_UI1_2", workflow)
+        self.assertIn("IBIS_Automation_Windows_UI1_2_1", workflow)
 
 
 if __name__ == "__main__":

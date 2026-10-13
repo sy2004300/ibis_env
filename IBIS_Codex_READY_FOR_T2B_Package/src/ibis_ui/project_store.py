@@ -21,6 +21,9 @@ class RecentProjectRecord:
     last_opened: str
     path: Path
     available: bool
+    source_excel: str
+    updated_at: str
+    status: str
 
 
 class ProjectStore:
@@ -104,7 +107,13 @@ class ProjectStore:
             rows = []
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         updated = [
-            {"project_id": project.project_id, "name": project.name, "last_opened": now},
+            {
+                "project_id": project.project_id,
+                "name": project.name,
+                "last_opened": now,
+                "source_excel": project.source_excel.path if project.source_excel else "无（UI 新建）",
+                "updated_at": project.updated_at,
+            },
             *[
                 item
                 for item in rows
@@ -136,16 +145,51 @@ class ProjectStore:
             except ProjectStorageError:
                 continue
             path = self.project_path(project_id)
+            source_excel = str(item.get("source_excel", ""))
+            updated_at = str(item.get("updated_at", ""))
+            project_name = str(item.get("name", "")).strip() or "未命名项目"
+            if path.is_file():
+                try:
+                    project_payload = json.loads(path.read_text(encoding="utf-8"))
+                    project_name = str(project_payload.get("name", project_name)).strip() or project_name
+                    updated_at = str(project_payload.get("updated_at", updated_at))
+                    source = project_payload.get("source_excel")
+                    if isinstance(source, dict):
+                        source_excel = str(source.get("path", source_excel))
+                    elif not source_excel:
+                        source_excel = "无（UI 新建）"
+                except (OSError, json.JSONDecodeError):
+                    pass
             records.append(
                 RecentProjectRecord(
                     project_id,
-                    str(item.get("name", "")).strip() or "未命名项目",
+                    project_name,
                     str(item.get("last_opened", "")),
                     path,
                     path.is_file(),
+                    source_excel or "未知",
+                    updated_at,
+                    "已保存" if path.is_file() else "项目文件不存在",
                 )
             )
         return records
+
+    def remove_recent(self, project_id: str) -> None:
+        validated = self._validated_project_id(project_id)
+        state = self._read_state()
+        rows = state.get("recent_projects", [])
+        remaining = [
+            item
+            for item in rows
+            if isinstance(item, dict) and str(item.get("project_id", "")) != validated
+        ] if isinstance(rows, list) else []
+        recent_id = state.get("recent_project_id")
+        if str(recent_id or "") == validated:
+            recent_id = remaining[0].get("project_id") if remaining else None
+        self._atomic_json_write(
+            self.state_path,
+            {"schema_version": 2, "recent_project_id": recent_id, "recent_projects": remaining},
+        )
 
     def load(self, project_id: str) -> ProjectDocument:
         path = self.project_path(project_id)

@@ -55,7 +55,7 @@ Codex 可以创建/修改实现代码，但不得为了让测试通过而修改�
 
 ## IBIS Automation UI（Phase 1.2）
 
-UI-1.2 在 `src/ibis_ui/` 中提供 Windows/Linux Tkinter 桌面框架，并复用现有
+UI-1.2.1 Revision 在 `src/ibis_ui/` 中提供 Windows/Linux Tkinter 桌面框架，并复用现有
 `ibis_auto.config.parse_config` 解析 Config Excel。项目状态由相互独立的
 Model、Controller、View 管理，Headless 测试不会创建 Tk 窗口。
 
@@ -103,7 +103,7 @@ Git Commit 和运行平台，可用 Commit 判断两个平台是否属于同一�
 
 原生 Windows 构建由 `.github/workflows/ibis-windows-package.yml` 在 `windows-latest` 上执行。
 Workflow 会运行 Windows 测试、Core Acceptance、PyInstaller 构建、打包后 EXE Headless 检查、
-真实 Tk 窗口自动关闭 Smoke Test，并上传 `IBIS_Automation_Windows_UI1_2.zip` Artifact。Linux job
+真实 Tk 窗口自动关闭 Smoke Test，并上传 `IBIS_Automation_Windows_UI1_2_1.zip` Artifact。Linux job
 运行相同测试；两个平台另外输出去除本地路径后的项目 JSON，并进行逐字节一致性比较。
 
 本地 Windows 构建命令：
@@ -116,13 +116,13 @@ python packaging/build_windows.py --commit <当前完整 Git SHA>
 产物结构：
 
 ```text
-dist/IBIS_Automation_Windows_UI1_2/
+dist/IBIS_Automation_Windows_UI1_2_1/
 ├── IBIS_Automation.exe
 ├── _internal/
 └── README.txt
 ```
 
-最终 ZIP 为 `dist/IBIS_Automation_Windows_UI1_2.zip`。`build/`、`dist/` 和 EXE/ZIP 产物不会提交
+最终 ZIP 为 `dist/IBIS_Automation_Windows_UI1_2_1.zip`。`build/`、`dist/` 和 EXE/ZIP 产物不会提交
 到 Git。软件自带只读资源位于 `_internal/resources/`；项目 Workspace 始终位于用户数据目录，
 也可通过 `--workspace` 显式覆盖。若跨电脑项目的 MSI/SPF/Model Root 失效，UI 会打开项目并
 提示重新指定路径，“保存配置”在路径修复前保持阻止状态。T2B 母模板默认由 Resource Resolver

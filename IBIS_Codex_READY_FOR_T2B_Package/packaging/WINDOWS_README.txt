@@ -1,9 +1,9 @@
-IBIS Automation Windows UI-1.2
+IBIS Automation Windows UI-1.2.1 Revision
 ==============================
 
 运行方式
 --------
-1. 将整个 IBIS_Automation_Windows_UI1_2 文件夹完整解压。
+1. 将整个 IBIS_Automation_Windows_UI1_2_1 文件夹完整解压。
 2. 双击 IBIS_Automation.exe。
 3. 不需要安装 Python，也不要单独移动 EXE；_internal 是运行所需目录。
 
@@ -19,7 +19,7 @@ Windows EXE 与 Linux Python 显示相同 Git Commit 时，代表来自同一套
 启动及异常日志：Workspace\logs\ibis_automation.log
 
 软件不会要求 EXE 所在目录可写，也不会自动覆盖导入的 Excel。
-如项目来自另一台电脑且 MSI/SPF/Model Root 已失效，请在“参数配置”页面重新指定路径，再点击“保存配置”。
+如项目来自另一台电脑且 MSI/SPF/Model Root 已失效，请在“参数配置”页面重新指定路径，再点击“保存项目”。
 T2B 母模板默认使用软件内置资源；外部模板 Root 覆盖位于“高级设置”。
 
 内置资源

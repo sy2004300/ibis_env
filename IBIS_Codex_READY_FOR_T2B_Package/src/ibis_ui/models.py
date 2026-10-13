@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from ibis_auto.model import Config
 
 from .errors import ProjectValidationError
+from .template_selection import ensure_template_selections, validate_template_selections
 
 
 PROJECT_SCHEMA_VERSION = 1
@@ -42,6 +43,7 @@ def empty_config_payload() -> dict[str, Any]:
         "aliases": [],
         "appends": [],
         "templates": [],
+        "template_selections": [],
         "overrides": [],
         "attribute_overrides": [],
         "msi_mappings": [],
@@ -51,7 +53,7 @@ def empty_config_payload() -> dict[str, Any]:
 
 
 def core_config_to_payload(config: Config) -> dict[str, Any]:
-    return {
+    payload = {
         "roots": {name: str(path) for name, path in config.roots.items()},
         "modules": [
             {
@@ -99,6 +101,7 @@ def core_config_to_payload(config: Config) -> dict[str, Any]:
         "spice_type": config.spice_type,
         "spice_command": config.spice_command,
     }
+    return ensure_template_selections(payload)
 
 
 def _require_mapping(value: Any, label: str) -> dict[str, Any]:
@@ -137,11 +140,6 @@ def validate_config_payload(payload: dict[str, Any], check_paths: bool = False) 
 
     known_domains = {str(name).casefold() for name in voltage_order}
     seen_modules: set[str] = set()
-    template_keys = {
-        (str(item.get("module", "")).casefold(), str(item.get("direction", "")).upper())
-        for item in payload.get("templates", [])
-        if isinstance(item, dict)
-    }
     for module in modules:
         module = _require_mapping(module, "Module")
         name = str(module.get("name", "")).strip()
@@ -174,10 +172,7 @@ def validate_config_payload(payload: dict[str, Any], check_paths: bool = False) 
                 if not str(values.get(corner_name, "")).strip():
                     raise ProjectValidationError("PROJECT_TIMING_MISSING", f"模块 {name} 缺少 {label} {corner_name}")
 
-        directions = ("DRV", "RCV") if generate_type == "BOTH" else (generate_type,)
-        for direction in directions:
-            if (normalized, direction) not in template_keys:
-                raise ProjectValidationError("PROJECT_TEMPLATE_MAPPING_MISSING", f"模块 {name} {direction} 缺少 T2B Template Mapping")
+    validate_template_selections(payload)
 
 
 @dataclass
@@ -220,6 +215,7 @@ class ProjectDocument:
             raise ProjectValidationError("PROJECT_MODE_INVALID", f"项目模式非法：{mode}")
         now = utc_now()
         payload = copy.deepcopy(config if config is not None else empty_config_payload())
+        ensure_template_selections(payload)
         validate_config_payload(payload, check_paths=False)
         return cls(str(uuid4()), project_name, mode, payload, now, now, source_excel)
 
@@ -250,6 +246,7 @@ class ProjectDocument:
             raise ProjectValidationError("PROJECT_SCHEMA_INVALID", f"项目文件格式错误：{exc}") from exc
         if mode not in {"excel", "ui"} or not name.strip():
             raise ProjectValidationError("PROJECT_SCHEMA_INVALID", "项目名称或模式非法")
+        ensure_template_selections(config)
         validate_config_payload(config, check_paths=False)
         source = data.get("source_excel")
         try:
