@@ -259,6 +259,16 @@ class ProjectController:
     def remove_recent(self, project_id: str) -> None:
         self.store.remove_recent(project_id)
 
+    def delete_project(self, project_id: str) -> Path:
+        """Soft-delete a saved project after it is no longer active."""
+
+        if self.project is not None and self.project.project_id == project_id:
+            raise ProjectStateError(
+                "PROJECT_DELETE_ACTIVE",
+                "当前项目正在打开，请先关闭项目，再从项目首页删除。",
+            )
+        return self.store.delete_project(project_id)
+
     def leave_warning(self) -> str | None:
         if self.has_unsaved_changes:
             return "当前项目有未保存修改。请选择保存项目、放弃修改或取消。"
