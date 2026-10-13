@@ -103,6 +103,42 @@ class UIPhase12Tests(unittest.TestCase):
         with self.assertRaisesRegex(ProjectStorageError, "项目不存在"):
             self.controller.load_project(first.project_id)
 
+    def test_remove_recent_keeps_saved_project(self) -> None:
+        project = self.controller.import_excel(DEMO_CONFIG, "仅移除列表")
+        saved = self.controller.save_configuration()
+        self.assertTrue(saved.is_file())
+
+        self.controller.remove_recent(project.project_id)
+
+        self.assertTrue(saved.is_file())
+        self.assertNotIn(project.project_id, [item.project_id for item in self.store.recent_project_records()])
+        reopened = ProjectController(self.store, resources=self.resources)
+        reopened.load_project(project.project_id)
+        self.assertEqual(reopened.project.name, "仅移除列表")
+
+    def test_delete_project_soft_deletes_only_workspace_project(self) -> None:
+        source_before = DEMO_CONFIG.read_bytes()
+        project = self.controller.import_excel(DEMO_CONFIG, "软删除项目")
+        saved = self.controller.save_configuration()
+        project_dir = saved.parent
+        self.controller.close_project("discard")
+
+        trash_path = self.controller.delete_project(project.project_id)
+
+        self.assertFalse(project_dir.exists())
+        self.assertTrue(trash_path.is_dir())
+        self.assertTrue((trash_path / "project.json").is_file())
+        self.assertEqual(DEMO_CONFIG.read_bytes(), source_before)
+        self.assertNotIn(project.project_id, [item.project_id for item in self.store.recent_project_records()])
+        with self.assertRaisesRegex(ProjectStorageError, "项目不存在"):
+            self.store.load(project.project_id)
+
+    def test_active_project_cannot_be_deleted(self) -> None:
+        project = self.controller.import_excel(DEMO_CONFIG, "活动项目")
+        self.controller.save_configuration()
+        with self.assertRaisesRegex(Exception, "请先关闭项目"):
+            self.controller.delete_project(project.project_id)
+
     def test_recursive_msi_scan_multi_workbook_sheet_and_ambiguity(self) -> None:
         config = json.loads(MULTI_MODULE.read_text(encoding="utf-8"))
         config["modules"] = config["modules"][:2]
