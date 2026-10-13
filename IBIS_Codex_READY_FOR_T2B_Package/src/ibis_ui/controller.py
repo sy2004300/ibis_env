@@ -159,6 +159,22 @@ class ProjectController:
             return
         raise ProjectValidationError("PROJECT_FIELD_UNSUPPORTED", f"UI-1 不支持编辑字段：{field}")
 
+    def update_corner_voltage(self, domain: str, corner: str, value: Any) -> None:
+        """Update one project-local Voltage Domain value in the draft."""
+
+        self.validation_error = None
+        _project, draft = self._require_active()
+        domain_name = str(domain).strip()
+        corner_name = str(corner).strip().upper()
+        if domain_name not in draft.get("voltage_order", []):
+            raise ProjectValidationError(
+                "PROJECT_VOLTAGE_DOMAIN_INVALID",
+                f"Voltage Domain 未定义：{domain_name}",
+            )
+        if corner_name not in {"MAX", "TYP", "MIN"}:
+            raise ProjectValidationError("PROJECT_CORNER_INVALID", f"Corner 非法：{corner_name}")
+        draft["corners"][corner_name]["voltages"][domain_name] = str(value).strip()
+
     def template_selection(self, module: str) -> dict[str, Any]:
         _project, draft = self._require_active()
         return selection_for(draft, module)

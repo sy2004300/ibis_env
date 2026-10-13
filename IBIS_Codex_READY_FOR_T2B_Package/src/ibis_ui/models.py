@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -121,8 +122,22 @@ def validate_config_payload(payload: dict[str, Any], check_paths: bool = False) 
 
     for name in CORNER_NAMES:
         corner = _require_mapping(corners.get(name), f"Corner {name}")
-        _require_mapping(corner.get("voltages"), f"Corner {name} Voltage")
+        voltages = _require_mapping(corner.get("voltages"), f"Corner {name} Voltage")
         _require_mapping(corner.get("calibration"), f"Corner {name} Calibration")
+        for domain in voltage_order:
+            raw = str(voltages.get(domain, "")).strip()
+            try:
+                parsed_voltage = Decimal(raw)
+            except (InvalidOperation, ValueError):
+                raise ProjectValidationError(
+                    "PROJECT_VOLTAGE_VALUE_INVALID",
+                    f"Corner {name} 的 {domain} 电压必须是数字：{raw!r}",
+                )
+            if not parsed_voltage.is_finite():
+                raise ProjectValidationError(
+                    "PROJECT_VOLTAGE_VALUE_INVALID",
+                    f"Corner {name} 的 {domain} 电压必须是有限数字：{raw!r}",
+                )
 
     if modules:
         for root_name in EXTERNAL_ROOT_NAMES:

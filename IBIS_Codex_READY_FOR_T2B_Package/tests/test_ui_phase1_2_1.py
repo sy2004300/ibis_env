@@ -231,7 +231,7 @@ class UIPhase121Tests(unittest.TestCase):
         self.assertEqual(APP_VERSION, "0.1.2.1")
         self.assertEqual(TEXT["import_config"], "导入 Config Excel")
         self.assertEqual(TEXT["save_config"], "保存项目")
-        self.assertEqual(TEXT["close_project"], "关闭项目")
+        self.assertEqual(TEXT["close_project"], "返回")
         self.assertEqual(TOOLTIPS["save_config"], "检查并保存当前软件项目中的修改，不会修改原始 Config Excel。")
         workflow = (PACKAGE_ROOT.parent / ".github" / "workflows" / "ibis-windows-package.yml").read_text(encoding="utf-8")
         self.assertIn("codex/ibis-ui-phase1-2", workflow)

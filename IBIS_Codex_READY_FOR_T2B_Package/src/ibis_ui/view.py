@@ -20,6 +20,10 @@ from .ui_text import TEXT, TOOLTIPS
 from .widgets import PathField, ScrollableFrame, Tooltip
 
 
+START_PAGE_ACTIONS = ("new_project", "open_project")
+PROJECT_PAGE_ACTIONS = ("import_config", "save_config", "delete_project", "advanced", "about")
+
+
 class IBISApplicationView(tk.Tk):
     """Cross-platform Tk shell; project decisions remain in headless services."""
 
@@ -50,6 +54,14 @@ class IBISApplicationView(tk.Tk):
     def _run_smoke_test(self) -> None:
         """Exercise the real main window layout before CI auto-closes it."""
         try:
+            def button_texts(root: tk.Misc) -> list[str]:
+                values: list[str] = []
+                for child in root.winfo_children():
+                    if isinstance(child, ttk.Button):
+                        values.append(str(child.cget("text")))
+                    values.extend(button_texts(child))
+                return values
+
             self.update_idletasks()
             if not self.controller.project:
                 raise RuntimeError("GUI Smoke 未加载项目")
@@ -59,6 +71,13 @@ class IBISApplicationView(tk.Tk):
                 raise RuntimeError("返回启动首页按钮不可见")
             if not self.delete_project_button.winfo_ismapped():
                 raise RuntimeError("删除项目按钮不可见")
+            project_buttons = button_texts(self._content)
+            if TEXT["new_project"] in project_buttons or TEXT["open_project"] in project_buttons:
+                raise RuntimeError("项目内部不应出现新建项目或打开项目按钮")
+            if TEXT["import_config"] not in project_buttons:
+                raise RuntimeError("项目内部缺少导入 Config Excel 按钮")
+            if not {"VDDQ", "VDD"}.issubset({domain for domain, _corner in self._voltage_vars}):
+                raise RuntimeError("参数配置未显示 VDDQ/VDD Corner 电压编辑框")
             bbox = self.config_scroll.canvas.bbox("all")
             if not bbox or bbox[3] - bbox[1] <= self.config_scroll.canvas.winfo_height():
                 raise RuntimeError("Config 长表单未形成可滚动区域")
@@ -72,6 +91,14 @@ class IBISApplicationView(tk.Tk):
                 raise RuntimeError("T2B DRV 模板下拉框未加载")
             if not self.msi_tree.get_children() or not self.spf_tree.get_children() or not self.model_tree.get_children():
                 raise RuntimeError("MSI/SPF/Model 只读预览未加载")
+            self.controller.close_project("discard")
+            self._show_start()
+            self.update_idletasks()
+            start_buttons = button_texts(self._content)
+            if start_buttons.count(TEXT["new_project"]) != 1 or start_buttons.count(TEXT["open_project"]) != 1:
+                raise RuntimeError("项目首页的新建项目/打开项目入口重复或缺失")
+            if TEXT["import_config"] in start_buttons:
+                raise RuntimeError("项目首页不应出现导入 Config Excel 按钮")
         except Exception as exc:
             self.smoke_error = str(exc)
         finally:
@@ -87,14 +114,6 @@ class IBISApplicationView(tk.Tk):
         toolbar.pack(fill="x")
         ttk.Label(toolbar, text="IBIS Automation", style="Title.TLabel", background=PANEL).pack(side="left")
         ttk.Label(toolbar, text="未打开项目", style="StatusDirty.TLabel", background=PANEL).pack(side="left", padx=16)
-        for key, command, primary in (
-            ("open_project", self._open_project, False),
-            ("import_config", self._import_excel, True),
-            ("new_project", self._new_project, False),
-        ):
-            button = ttk.Button(toolbar, text=TEXT[key], command=command, style="Primary.TButton" if primary else "Secondary.TButton")
-            button.pack(side="right", padx=3)
-            Tooltip(button, TOOLTIPS[key])
 
         scrolling = ScrollableFrame(self._content)
         scrolling.pack(fill="both", expand=True, padx=16, pady=12)
@@ -103,11 +122,17 @@ class IBISApplicationView(tk.Tk):
         ttk.Label(panel, text=TEXT.get("app_subtitle", ""), foreground=MUTED).pack(anchor="w", pady=(3, 18))
         card = ttk.LabelFrame(panel, text="开始使用", padding=18, style="Card.TLabelframe")
         card.pack(fill="x", pady=(0, 12))
-        ttk.Label(card, text="请选择一种方式开始：新建项目、只读导入 Config Excel，或打开已经保存的项目。", style="Panel.TLabel").pack(anchor="w")
+        ttk.Label(card, text="新建一个软件项目，或从下方最近项目中选择后打开。Config Excel 请进入具体项目后导入。", style="Panel.TLabel").pack(anchor="w")
         actions = ttk.Frame(card, style="Panel.TFrame")
         actions.pack(anchor="w", pady=(14, 0))
-        for key, command in (("new_project", self._new_project), ("import_config", self._import_excel), ("open_project", self._open_project)):
-            button = ttk.Button(actions, text=TEXT[key], command=command, style="Primary.TButton" if key == "import_config" else "Secondary.TButton")
+        commands = {"new_project": self._new_project, "open_project": self._open_from_start}
+        for key in START_PAGE_ACTIONS:
+            button = ttk.Button(
+                actions,
+                text=TEXT[key],
+                command=commands[key],
+                style="Primary.TButton" if key == "new_project" else "Secondary.TButton",
+            )
             button.pack(side="left", padx=(0, 8))
             Tooltip(button, TOOLTIPS[key])
 
@@ -115,7 +140,7 @@ class IBISApplicationView(tk.Tk):
         recent.pack(fill="both", expand=True, pady=(0, 12))
         ttk.Label(
             recent,
-            text="选中项目后，可在下方直接打开、从列表移除或删除项目（删除仅移动软件项目到回收区，不删除外部输入文件）。",
+            text="双击项目或选中后点击上方“打开项目”。未选择项目时，“打开项目”可浏览 project.json。",
             style="Panel.TLabel",
             foreground=MUTED,
             wraplength=1050,
@@ -140,18 +165,12 @@ class IBISApplicationView(tk.Tk):
             text=TEXT["remove_recent"],
             command=lambda: self._remove_selected_recent(self.start_recent_tree),
         ).pack(side="right", padx=(0, 8))
-        ttk.Button(
-            recent_actions,
-            text="打开项目",
-            command=lambda: self._open_selected_recent(self.start_recent_tree),
-            style="Primary.TButton",
-        ).pack(side="right", padx=(0, 8))
 
         guide = ttk.LabelFrame(panel, text="工程师工作流程", padding=12, style="Card.TLabelframe")
         guide.pack(fill="x")
         ttk.Label(
             guide,
-            text="① 导入或新建项目  →  ② 检查输入文件  →  ③ 修改并保存项目  →  ④ 选择 T2B 模板  →  ⑤ 编辑/管理工作模板（UI-3）  →  ⑥ 生成文件（UI-4）  →  ⑦ 查看结果（UI-4）",
+            text="① 新建或打开项目  →  ② 在项目内导入 Config Excel  →  ③ 修改并保存项目  →  ④ 检查输入文件  →  ⑤ 选择 T2B 模板  →  ⑥ 后续阶段生成与查看结果",
             style="Panel.TLabel",
             wraplength=1050,
             justify="left",
@@ -181,49 +200,33 @@ class IBISApplicationView(tk.Tk):
     def _build_topbar(self) -> None:
         bar = ttk.Frame(self._content, padding=(12, 9), style="Toolbar.TFrame")
         bar.pack(fill="x")
-        navigation = ttk.Frame(bar, style="Toolbar.TFrame")
-        navigation.pack(fill="x")
         self.back_to_start_button = ttk.Button(
-            navigation,
+            bar,
             text=TEXT["back_to_start"],
             command=self._close_current_project,
             style="Secondary.TButton",
         )
-        self.back_to_start_button.pack(side="left", padx=(0, 6))
+        self.back_to_start_button.pack(side="left", padx=(0, 10))
         Tooltip(self.back_to_start_button, TOOLTIPS["back_to_start"])
-        home = ttk.Button(navigation, text=TEXT["home"], command=self._go_home, style="Secondary.TButton")
-        home.pack(side="left", padx=(0, 6))
-        Tooltip(home, TOOLTIPS["home"])
-        self.delete_project_button = ttk.Button(
-            navigation,
-            text=TEXT["delete_project"],
-            command=self._delete_current_project,
-            style="Danger.TButton",
-        )
-        self.delete_project_button.pack(side="left", padx=(0, 10))
-        Tooltip(self.delete_project_button, TOOLTIPS["delete_project"])
-        self.project_label = ttk.Label(navigation, text="", style="Panel.TLabel", font=(self.ui_font, 11, "bold"))
+        self.project_label = ttk.Label(bar, text="", style="Panel.TLabel", font=(self.ui_font, 11, "bold"))
         self.project_label.pack(side="left")
-        self.state_label = ttk.Label(navigation, text="", style="StatusSaved.TLabel", background=PANEL)
+        self.state_label = ttk.Label(bar, text="", style="StatusSaved.TLabel", background=PANEL)
         self.state_label.pack(side="left", padx=16)
-        about = ttk.Button(navigation, text=TEXT["about"], command=self._show_about, style="Secondary.TButton")
-        about.pack(side="right")
-
-        actions = ttk.Frame(bar, style="Toolbar.TFrame")
-        actions.pack(fill="x", pady=(6, 0))
-        for key, command, primary in (
-            ("new_project", self._new_project, False),
-            ("import_config", self._import_excel, False),
-            ("open_project", self._open_project, False),
-            ("advanced", self._open_advanced_settings, False),
-        ):
-            button = ttk.Button(actions, text=TEXT[key], command=command, style="Primary.TButton" if primary else "Secondary.TButton")
-            button.pack(side="left", padx=(0, 6))
+        commands = {
+            "import_config": self._import_excel,
+            "save_config": self._save,
+            "delete_project": self._delete_current_project,
+            "advanced": self._open_advanced_settings,
+            "about": self._show_about,
+        }
+        for key in reversed(PROJECT_PAGE_ACTIONS):
+            style = "Primary.TButton" if key == "save_config" else ("Danger.TButton" if key == "delete_project" else "Secondary.TButton")
+            button = ttk.Button(bar, text=TEXT[key], command=commands[key], style=style)
+            button.pack(side="right", padx=3)
             if key in TOOLTIPS:
                 Tooltip(button, TOOLTIPS[key])
-        save = ttk.Button(actions, text=TEXT["save_config"], command=self._save, style="Primary.TButton")
-        save.pack(side="right")
-        Tooltip(save, TOOLTIPS["save_config"])
+            if key == "delete_project":
+                self.delete_project_button = button
 
     def _build_bottom(self) -> None:
         bar = ttk.Frame(self._content, padding=(12, 8), style="Toolbar.TFrame")
@@ -295,6 +298,9 @@ class IBISApplicationView(tk.Tk):
         input_button = ttk.Button(home_header, text=TEXT["input_check"], command=self._go_input_files, style="Primary.TButton")
         input_button.pack(side="right")
         Tooltip(input_button, TOOLTIPS["input_check"])
+        config_button = ttk.Button(home_header, text="编辑参数（含 VDDQ/VDD）", command=self._go_config, style="Secondary.TButton")
+        config_button.pack(side="right", padx=(0, 8))
+        Tooltip(config_button, "打开参数配置，编辑 Voltage Domain、Ron、Tr/Tf 等项目参数。")
         self.overview_text = self._text_with_scrollbars(self.home_tab, wrap="word", readonly=True)
         self._build_config_tab()
         self._build_files_tab()
@@ -335,7 +341,7 @@ class IBISApplicationView(tk.Tk):
         self.config_scroll = scrolling
         parent = scrolling.body
 
-        ttk.Label(parent, text="管理当前 IO Top 的 Ron、Voltage、Timing 及其他生成参数。", foreground=MUTED).pack(fill="x", pady=(0, 8))
+        ttk.Label(parent, text="在本页直接修改 VDDQ/VDD 等 Corner 电压，以及当前 IO Top 的 Ron、Voltage Domain、Tr/Tf。修改后点击顶部“保存项目”。", foreground=MUTED).pack(fill="x", pady=(0, 8))
         paths = ttk.LabelFrame(parent, text="第 1 节 — 项目与路径", padding=10, style="Card.TLabelframe")
         paths.pack(fill="x", pady=(0, 8))
         for row, name in enumerate(("model", "msi", "spf")):
@@ -352,23 +358,30 @@ class IBISApplicationView(tk.Tk):
             foreground=MUTED,
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(7, 0))
 
-        summary = ttk.LabelFrame(parent, text="第 3.1 / 3.2 节 — Corner / Voltage（只读预览）", padding=10, style="Card.TLabelframe")
+        summary = ttk.LabelFrame(parent, text="第 3.1 / 3.2 节 — Corner / Voltage（可编辑）", padding=10, style="Card.TLabelframe")
         summary.pack(fill="x", pady=(0, 8))
-        summary_holder = ttk.Frame(summary, style="Panel.TFrame")
-        summary_holder.pack(fill="x")
-        self.corner_summary = ttk.Treeview(summary_holder, columns=("max", "typ", "min"), show="tree headings", height=7)
-        self.corner_summary.heading("#0", text="参数")
-        for name in ("max", "typ", "min"):
-            self.corner_summary.heading(name, text=name.upper())
-            self.corner_summary.column(name, width=120, anchor="center")
-        self.corner_summary.column("#0", width=210)
-        ybar = ttk.Scrollbar(summary_holder, orient="vertical", command=self.corner_summary.yview)
-        xbar = ttk.Scrollbar(summary_holder, orient="horizontal", command=self.corner_summary.xview)
-        self.corner_summary.configure(yscrollcommand=ybar.set, xscrollcommand=xbar.set)
-        self.corner_summary.grid(row=0, column=0, sticky="nsew")
-        ybar.grid(row=0, column=1, sticky="ns")
-        xbar.grid(row=1, column=0, sticky="ew")
-        summary_holder.columnconfigure(0, weight=1)
+        ttk.Label(summary, text="参数", style="Panel.TLabel", font=(self.ui_font, 10, "bold")).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=(0, 5))
+        for column, corner in enumerate(("MAX", "TYP", "MIN"), 1):
+            ttk.Label(summary, text=corner, style="Panel.TLabel", font=(self.ui_font, 10, "bold")).grid(row=0, column=column, sticky="ew", padx=4, pady=(0, 5))
+            summary.columnconfigure(column, weight=1)
+        config = self.controller.active_config
+        corners = config.get("corners", {})
+        for row, (label, key) in enumerate((("Process（只读）", "process"), ("Temperature（只读）", "temperature")), 1):
+            ttk.Label(summary, text=label, style="Panel.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 10), pady=3)
+            for column, corner in enumerate(("MAX", "TYP", "MIN"), 1):
+                ttk.Label(summary, text=str(corners.get(corner, {}).get(key, "")), style="Panel.TLabel").grid(row=row, column=column, sticky="ew", padx=4, pady=3)
+        self._voltage_vars: dict[tuple[str, str], tk.StringVar] = {}
+        voltage_order = list(config.get("voltage_order", []))
+        for row, domain in enumerate(voltage_order, 3):
+            ttk.Label(summary, text=f"{domain} Voltage", style="Panel.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 10), pady=3)
+            for column, corner in enumerate(("MAX", "TYP", "MIN"), 1):
+                variable = tk.StringVar()
+                entry = ttk.Entry(summary, textvariable=variable)
+                entry.grid(row=row, column=column, sticky="ew", padx=4, pady=3)
+                entry.bind("<KeyRelease>", lambda _event, item=domain, name=corner: self._voltage_changed(item, name))
+                self._voltage_vars[(domain, corner)] = variable
+        if not voltage_order:
+            ttk.Label(summary, text="当前项目尚无 Voltage Domain；请先从项目顶部导入 Config Excel。", style="Panel.TLabel", foreground=WARNING).grid(row=3, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
         module = ttk.LabelFrame(parent, text="第 2 节 — 模块 / 方向 / Ron / T2B 动态参数", padding=10, style="Card.TLabelframe")
         module.pack(fill="x", pady=(0, 8))
@@ -707,12 +720,9 @@ class IBISApplicationView(tk.Tk):
         try:
             for name, variable in self._root_vars.items():
                 variable.set(config.get("roots", {}).get(name, ""))
-            self.corner_summary.delete(*self.corner_summary.get_children())
             corners = config.get("corners", {})
-            self.corner_summary.insert("", "end", text="Process", values=tuple(corners.get(name, {}).get("process", "") for name in ("MAX", "TYP", "MIN")))
-            self.corner_summary.insert("", "end", text="Temperature", values=tuple(corners.get(name, {}).get("temperature", "") for name in ("MAX", "TYP", "MIN")))
-            for domain in config.get("voltage_order", []):
-                self.corner_summary.insert("", "end", text=domain, values=tuple(corners.get(name, {}).get("voltages", {}).get(domain, "") for name in ("MAX", "TYP", "MIN")))
+            for (domain, corner), variable in self._voltage_vars.items():
+                variable.set(corners.get(corner, {}).get("voltages", {}).get(domain, ""))
             for widget, _kind in self._module_widgets.values():
                 if getattr(widget, "_ibis_domain_widget", False):
                     widget.configure(values=tuple(config.get("voltage_order", [])))
@@ -894,6 +904,11 @@ class IBISApplicationView(tk.Tk):
             self._refresh_overview()
             self.notebook.select(self.home_tab)
 
+    def _go_config(self) -> None:
+        if hasattr(self, "notebook") and hasattr(self, "config_tab"):
+            self._refresh_config()
+            self.notebook.select(self.config_tab)
+
     def _go_input_files(self) -> None:
         self._refresh_sources()
         self.notebook.select(self.files_tab)
@@ -944,6 +959,15 @@ class IBISApplicationView(tk.Tk):
             )
         if not records:
             tree.insert("", "end", iid="recent:none", values=("暂无最近项目", "", "", ""))
+
+    def _open_from_start(self) -> None:
+        """Use one start-page action for recent projects and browsed JSON."""
+
+        selection = self.start_recent_tree.selection() if hasattr(self, "start_recent_tree") else ()
+        if selection and selection[0] != "recent:none":
+            self._open_selected_recent(self.start_recent_tree)
+            return
+        self._browse_project_file()
 
     def _open_selected_recent(self, tree: ttk.Treeview) -> None:
         selection = tree.selection()
@@ -1131,6 +1155,17 @@ class IBISApplicationView(tk.Tk):
         if field == "generate_type":
             self._refresh_t2b()
 
+    def _voltage_changed(self, domain: str, corner: str) -> None:
+        if self._loading_form:
+            return
+        try:
+            self.controller.update_corner_voltage(domain, corner, self._voltage_vars[(domain, corner)].get())
+        except UIProjectError as exc:
+            self.status_message.configure(text=f"错误 [{exc.code}]：{exc}", foreground=FAIL)
+            return
+        self._refresh_status()
+        self.status_message.configure(text=f"已修改 {domain} {corner} 电压；点击“保存项目”完成保存。", foreground=WARNING)
+
     def _root_changed(self, name: str) -> None:
         if self._loading_form:
             return
@@ -1205,13 +1240,22 @@ class IBISApplicationView(tk.Tk):
     def _import_excel(self) -> None:
         from tkinter import filedialog
 
+        current = self.controller.project
+        if current is None:
+            messagebox.showinfo("请先新建项目", "请先在项目首页新建或打开一个项目，再在项目内部导入 Config Excel。", parent=self)
+            return
         path = filedialog.askopenfilename(title="导入 Config Excel", filetypes=(("Excel 工作簿", "*.xlsx"),))
         if not path:
             return
-        if not self._confirm_leave_current():
+        if not messagebox.askyesno(
+            "导入 Config Excel",
+            f"将 Config Excel 导入当前项目“{current.name}”吗？\n\n"
+            "项目名称和 Project UUID 会保留；当前项目中的配置草稿将由 Excel 内容更新。\n"
+            "原始 Excel 始终只读，不会被软件覆盖。",
+            parent=self,
+        ):
             return
-        current = self.controller.project
-        current_id = current.project_id if current else None
+        current_id = current.project_id
         try:
             project = self.controller.import_excel(Path(path))
         except UIProjectError as exc:
@@ -1219,7 +1263,8 @@ class IBISApplicationView(tk.Tk):
             return
         self._selected_module = None
         self._show_main()
-        if current_id is not None and project.project_id == current_id:
+        self._go_config()
+        if project.project_id == current_id:
             result = f"Config Excel 已导入当前项目“{project.name}”；项目名称和 UUID 均已保留，原文件只读且未修改。"
         else:
             result = f"Config Excel 已导入新项目“{project.name}”；原文件只读且未修改。"
@@ -1252,15 +1297,15 @@ class IBISApplicationView(tk.Tk):
             return "discard"
         result = {"value": "cancel"}
         win = tk.Toplevel(self)
-        win.title("关闭项目")
+        win.title("返回项目首页")
         win.geometry("560x190")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
         body = ttk.Frame(win, padding=18)
         body.pack(fill="both", expand=True)
-        ttk.Label(body, text="当前项目存在未保存修改，是否保存后关闭？", font=(self.ui_font, 11, "bold")).pack(anchor="w")
-        ttk.Label(body, text="关闭项目只会清除当前活动项目，不会删除项目目录、Excel、MSI、SPF 或其他输入文件。", foreground=MUTED, wraplength=510).pack(anchor="w", pady=(8, 18))
+        ttk.Label(body, text="当前项目存在未保存修改，是否保存后返回？", font=(self.ui_font, 11, "bold")).pack(anchor="w")
+        ttk.Label(body, text="返回项目首页只会关闭当前项目视图，不会删除项目目录、Excel、MSI、SPF 或其他输入文件。", foreground=MUTED, wraplength=510).pack(anchor="w", pady=(8, 18))
         buttons = ttk.Frame(body)
         buttons.pack(fill="x")
 
@@ -1269,8 +1314,8 @@ class IBISApplicationView(tk.Tk):
             win.destroy()
 
         ttk.Button(buttons, text="取消", command=lambda: choose("cancel")).pack(side="right")
-        ttk.Button(buttons, text="不保存并关闭", command=lambda: choose("discard")).pack(side="right", padx=8)
-        ttk.Button(buttons, text="保存并关闭", command=lambda: choose("save"), style="Primary.TButton").pack(side="right")
+        ttk.Button(buttons, text="不保存并返回", command=lambda: choose("discard")).pack(side="right", padx=8)
+        ttk.Button(buttons, text="保存并返回", command=lambda: choose("save"), style="Primary.TButton").pack(side="right")
         win.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
         self.wait_window(win)
         return result["value"]

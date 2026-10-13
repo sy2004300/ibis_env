@@ -17,6 +17,7 @@ from ibis_ui.runtime import APP_VERSION, ResourceResolver
 from ibis_ui.source_preview import preview_models, preview_msi, preview_spf
 from ibis_ui.status import ConfigStatus, GenerationStatus, SourceStatus, status_label
 from ibis_ui.ui_text import TEXT, TOOLTIPS
+from ibis_ui.view import PROJECT_PAGE_ACTIONS, START_PAGE_ACTIONS
 
 from test_ui_phase1_1 import _write_xlsx
 
@@ -176,6 +177,30 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertEqual(reloaded.project.source_excel.path, str(DEMO_CONFIG.resolve()))
         self.assertEqual(DEMO_CONFIG.read_bytes(), source_before)
 
+    def test_corner_voltage_edit_saves_and_reloads_without_modifying_excel(self) -> None:
+        source_before = DEMO_CONFIG.read_bytes()
+        project = self.controller.import_excel(DEMO_CONFIG, "电压编辑")
+
+        self.controller.update_corner_voltage("VDDQ", "TYP", "0.61")
+        self.controller.update_corner_voltage("VDD", "MAX", "0.91")
+
+        self.assertTrue(self.controller.is_dirty)
+        self.controller.save_configuration()
+        reloaded = ProjectController(self.store, resources=self.resources)
+        reloaded.load_project(project.project_id)
+        self.assertEqual(reloaded.active_config["corners"]["TYP"]["voltages"]["VDDQ"], "0.61")
+        self.assertEqual(reloaded.active_config["corners"]["MAX"]["voltages"]["VDD"], "0.91")
+        self.assertEqual(DEMO_CONFIG.read_bytes(), source_before)
+
+    def test_invalid_corner_voltage_is_rejected_when_saving(self) -> None:
+        self.controller.import_excel(DEMO_CONFIG, "非法电压")
+        self.controller.update_corner_voltage("VDDQ", "MIN", "not-a-number")
+
+        with self.assertRaisesRegex(ProjectValidationError, "电压必须是数字"):
+            self.controller.save_configuration()
+
+        self.assertTrue(self.controller.is_dirty)
+
     def test_recursive_msi_scan_multi_workbook_sheet_and_ambiguity(self) -> None:
         config = json.loads(MULTI_MODULE.read_text(encoding="utf-8"))
         config["modules"] = config["modules"][:2]
@@ -256,9 +281,19 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertEqual(TEXT["save_config"], "保存项目")
         self.assertEqual(TEXT["input_files"], "输入文件")
         self.assertIn("不会修改原始 Config Excel", TOOLTIPS["save_config"])
-        self.assertEqual(TEXT["back_to_start"], "← 返回启动首页")
-        self.assertIn("返回启动首页", TOOLTIPS["back_to_start"])
+        self.assertEqual(TEXT["back_to_start"], "返回")
+        self.assertIn("返回项目首页", TOOLTIPS["back_to_start"])
         self.assertNotIn("Apply", " ".join(TEXT.values()))
+
+    def test_start_and_project_page_actions_have_separate_responsibilities(self) -> None:
+        self.assertEqual(START_PAGE_ACTIONS, ("new_project", "open_project"))
+        self.assertEqual(
+            PROJECT_PAGE_ACTIONS,
+            ("import_config", "save_config", "delete_project", "advanced", "about"),
+        )
+        self.assertNotIn("import_config", START_PAGE_ACTIONS)
+        self.assertNotIn("new_project", PROJECT_PAGE_ACTIONS)
+        self.assertNotIn("open_project", PROJECT_PAGE_ACTIONS)
 
     def test_fixture_catalog_covers_required_current_scenarios(self) -> None:
         catalog = json.loads(FIXTURE_CATALOG.read_text(encoding="utf-8"))
