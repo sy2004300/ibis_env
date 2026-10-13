@@ -18,13 +18,13 @@ PYINSTALLER_DIST = BUILD_ROOT / "pyinstaller-dist"
 PYINSTALLER_WORK = BUILD_ROOT / "pyinstaller-work"
 PACKAGE_INPUT = BUILD_ROOT / "package-input"
 DIST_ROOT = PROJECT_ROOT / "dist"
-OUTPUT_NAME = "IBIS_Automation_Windows_UI1_1"
+OUTPUT_NAME = "IBIS_Automation_Windows_UI1_2_1"
 OUTPUT_DIRECTORY = DIST_ROOT / OUTPUT_NAME
 OUTPUT_ARCHIVE = DIST_ROOT / f"{OUTPUT_NAME}.zip"
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Build the native Windows UI-1.1 onedir package")
+    result = argparse.ArgumentParser(description="Build the native Windows UI-1.2.1 Revision onedir package")
     result.add_argument("--commit", required=True, help="Git commit embedded in the EXE About page")
     return result
 

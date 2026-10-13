@@ -63,6 +63,25 @@ class SPFPreviewReport:
     matches: tuple[SPFCornerPreview, ...]
 
 
+@dataclass(frozen=True)
+class ModelFilePreview:
+    filename: str
+    path: str
+    status: str
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class ModelPreviewReport:
+    root: Path
+    spice_type: str
+    files: tuple[ModelFilePreview, ...]
+
+    @property
+    def is_complete(self) -> bool:
+        return bool(self.files) and all(item.status == "FOUND" for item in self.files)
+
+
 def _mapping_by_module(config: dict[str, Any]) -> dict[str, dict[str, str]]:
     return {
         str(item.get("module", "")).casefold(): item
@@ -73,7 +92,20 @@ def _mapping_by_module(config: dict[str, Any]) -> dict[str, dict[str, str]]:
 
 def preview_msi(config: dict[str, Any]) -> MSIPreviewReport:
     root = Path(str(config.get("roots", {}).get("msi", ""))).expanduser()
-    files = tuple(sorted(root.glob("*.xlsx"))) if root.is_dir() else ()
+    files = (
+        tuple(
+            sorted(
+                path
+                for path in root.rglob("*")
+                if path.is_file()
+                and path.suffix.casefold() == ".xlsx"
+                and not path.name.startswith("~$")
+                and path.name.casefold() != "msi_master.xlsx"
+            )
+        )
+        if root.is_dir()
+        else ()
+    )
     sheets: list[MSISheetPreview] = []
     for path in files:
         try:
@@ -175,3 +207,23 @@ def preview_spf(config: dict[str, Any]) -> SPFPreviewReport:
                         "同一模块各 Corner 的 SPF Top Pin List 不一致",
                     )
     return SPFPreviewReport(root.resolve() if root.exists() else root, tuple(results))
+
+
+def preview_models(config: dict[str, Any]) -> ModelPreviewReport:
+    """Check only the required files; this is not an electrical model validation."""
+    root = Path(str(config.get("roots", {}).get("model", ""))).expanduser()
+    spice_type = str(config.get("spice_type", "spectre")).strip().casefold() or "spectre"
+    model_dir = root / spice_type
+    files = []
+    for filename in ("rbd.lib", "cap.lib", "mos_var.lib"):
+        path = model_dir / filename
+        found = path.is_file()
+        files.append(
+            ModelFilePreview(
+                filename,
+                str(path.resolve()) if path.exists() else str(path),
+                "FOUND" if found else "ERROR",
+                "文件存在" if found else "必需模型文件缺失",
+            )
+        )
+    return ModelPreviewReport(root.resolve() if root.exists() else root, spice_type, tuple(files))

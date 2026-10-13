@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - codex/ibis-ui-phase1-1
+      - main
+      - codex/ibis-ui-phase1-2
   pull_request:
     branches:
       - main
@@ -55,7 +56,7 @@ jobs:
       - name: Upload Linux compatibility snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: ui1-platform-linux-${{ github.run_id }}
+          name: ui121-platform-linux-${{ github.run_id }}
           path: IBIS_Codex_READY_FOR_T2B_Package/build/platform-linux.json
           if-no-files-found: error
 
@@ -139,7 +140,7 @@ jobs:
       - name: Verify package structure
         shell: pwsh
         run: |
-          $package = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_1"
+          $package = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_2_1"
           $required = @(
             "IBIS_Automation.exe",
             "_internal",
@@ -156,12 +157,12 @@ jobs:
             $target = Join-Path $package $relative
             if (-not (Test-Path $target)) { throw "Missing package resource: $target" }
           }
-          if (-not (Test-Path "dist/IBIS_Automation_Windows_UI1_1.zip")) { throw "Windows ZIP missing" }
+          if (-not (Test-Path "dist/IBIS_Automation_Windows_UI1_2_1.zip")) { throw "Windows ZIP missing" }
 
       - name: Run packaged EXE headless check
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_1/IBIS_Automation.exe"
+          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_2_1/IBIS_Automation.exe"
           $workspace = Join-Path $env:RUNNER_TEMP "ibis-exe-workspace"
           $report = Join-Path $env:RUNNER_TEMP "ibis-exe-check.json"
           $process = Start-Process -FilePath $exe -ArgumentList @("--check", "--workspace", $workspace, "--check-report", $report) -Wait -PassThru
@@ -179,11 +180,11 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_1/IBIS_Automation.exe"
+          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_UI1_2_1/IBIS_Automation.exe"
           $workspace = Join-Path $env:RUNNER_TEMP "ibis-exe-gui-workspace"
           $process = Start-Process -FilePath $exe -ArgumentList @("--smoke-test", "--workspace", $workspace) -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Tk window smoke failed with exit code $($process.ExitCode)" }
-          "Real Tk window smoke: PASS (Demo main window, Config scroll, template and MSI/SPF previews created; auto-closed; visual inspection not performed)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "Real Tk window smoke: PASS (Demo project home, Chinese navigation, Config scroll, template and MSI/SPF/Model previews created; auto-closed; visual inspection not performed)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Record GUI smoke distinction
         if: always()
@@ -198,17 +199,17 @@ jobs:
       - name: Upload Windows compatibility snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: ui1-platform-windows-${{ github.run_id }}
+          name: ui121-platform-windows-${{ github.run_id }}
           path: IBIS_Codex_READY_FOR_T2B_Package/build/platform-windows.json
           if-no-files-found: error
 
       - name: Upload downloadable Windows ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: IBIS_Automation_Windows_UI1_1
+          name: IBIS_Automation_Windows_UI1_2_1
           # GitHub creates the downloadable artifact ZIP. Uploading the onedir
           # contents avoids a ZIP-inside-ZIP and makes one extraction sufficient.
-          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_UI1_1/
+          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_UI1_2_1/
           if-no-files-found: error
           compression-level: 6
           retention-days: 30
@@ -223,13 +224,13 @@ jobs:
       - name: Download Linux snapshot
         uses: actions/download-artifact@v4
         with:
-          name: ui1-platform-linux-${{ github.run_id }}
+          name: ui121-platform-linux-${{ github.run_id }}
           path: linux
 
       - name: Download Windows snapshot
         uses: actions/download-artifact@v4
         with:
-          name: ui1-platform-windows-${{ github.run_id }}
+          name: ui121-platform-windows-${{ github.run_id }}
           path: windows
 
       - name: Compare path-neutral JSON exactly
