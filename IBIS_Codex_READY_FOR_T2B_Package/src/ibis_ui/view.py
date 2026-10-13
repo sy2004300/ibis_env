@@ -117,7 +117,24 @@ class IBISApplicationView(tk.Tk):
         )
         self.start_recent_tree.bind("<Double-1>", lambda _event: self._open_selected_recent(self.start_recent_tree))
         self._populate_recent_tree(self.start_recent_tree)
-        ttk.Button(recent, text="打开选中最近项目", command=lambda: self._open_selected_recent(self.start_recent_tree)).pack(anchor="e", pady=(6, 0))
+        recent_actions = ttk.Frame(recent, style="Panel.TFrame")
+        recent_actions.pack(fill="x", pady=(6, 0))
+        ttk.Button(
+            recent_actions,
+            text=TEXT["delete_project"],
+            command=lambda: self._delete_selected_project(self.start_recent_tree),
+        ).pack(side="right")
+        ttk.Button(
+            recent_actions,
+            text=TEXT["remove_recent"],
+            command=lambda: self._remove_selected_recent(self.start_recent_tree),
+        ).pack(side="right", padx=(0, 8))
+        ttk.Button(
+            recent_actions,
+            text="打开项目",
+            command=lambda: self._open_selected_recent(self.start_recent_tree),
+            style="Primary.TButton",
+        ).pack(side="right", padx=(0, 8))
 
         guide = ttk.LabelFrame(panel, text="工程师工作流程", padding=12, style="Card.TLabelframe")
         guide.pack(fill="x")
@@ -911,6 +928,73 @@ class IBISApplicationView(tk.Tk):
         self._selected_module = None
         self._show_main()
 
+    def _selected_recent_record(self, tree: ttk.Treeview):
+        selection = tree.selection()
+        if not selection or selection[0] == "recent:none":
+            return None
+        return next(
+            (item for item in self.controller.recent_projects() if item.project_id == selection[0]),
+            None,
+        )
+
+    def _remove_selected_recent(self, tree: ttk.Treeview, parent: tk.Misc | None = None) -> None:
+        record = self._selected_recent_record(tree)
+        if record is None:
+            return
+        if not messagebox.askyesno(
+            "从列表移除",
+            f"确定从最近项目列表中移除“{record.name}”吗？\n\n"
+            "这不会删除项目文件，也不会删除 Config Excel、MSI、SPF 或 Model。",
+            parent=parent or self,
+        ):
+            return
+        try:
+            self.controller.remove_recent(record.project_id)
+        except UIProjectError as exc:
+            self._show_error(exc)
+            return
+        self._populate_recent_tree(tree)
+
+    def _delete_selected_project(self, tree: ttk.Treeview, parent: tk.Misc | None = None) -> None:
+        record = self._selected_recent_record(tree)
+        if record is None:
+            return
+        if not record.available:
+            messagebox.showinfo(
+                "项目文件不存在",
+                "该项目文件已经不存在，可以使用“从列表移除”清理这条记录。",
+                parent=parent or self,
+            )
+            return
+        active = self.controller.project
+        if active is not None and active.project_id == record.project_id:
+            messagebox.showinfo(
+                "请先关闭项目",
+                "当前项目正在打开，请先关闭项目，再从项目首页删除。",
+                parent=parent or self,
+            )
+            return
+        confirmed = messagebox.askyesno(
+            "删除项目",
+            f"确定删除项目“{record.name}”吗？\n\n"
+            "项目会从 IBIS Automation 工作区移入回收区，可用于恢复。\n"
+            "不会删除原始 Config Excel、MSI、SPF、Model 等输入文件。",
+            parent=parent or self,
+        )
+        if not confirmed:
+            return
+        try:
+            trash_path = self.controller.delete_project(record.project_id)
+        except UIProjectError as exc:
+            self._show_error(exc)
+            return
+        self._populate_recent_tree(tree)
+        messagebox.showinfo(
+            "项目已删除",
+            f"项目“{record.name}”已移入软件回收区。\n\n回收位置：\n{trash_path}",
+            parent=parent or self,
+        )
+
     def _open_project(self) -> None:
         win = tk.Toplevel(self)
         win.title("打开项目")
@@ -945,22 +1029,20 @@ class IBISApplicationView(tk.Tk):
             self._show_main()
             self._log(f"打开项目：{self.controller.project.name}")
 
-        def remove_missing() -> None:
-            selection = tree.selection()
-            if not selection or selection[0] == "recent:none":
-                return
-            record = next((item for item in self.controller.recent_projects() if item.project_id == selection[0]), None)
-            if record and record.available:
-                messagebox.showinfo("无法移除", "项目文件仍然存在，只能移除显示“项目文件不存在”的记录。", parent=win)
-                return
-            self.controller.remove_recent(selection[0])
-            self._populate_recent_tree(tree)
-
         tree.bind("<Double-1>", open_selected)
         buttons = ttk.Frame(body)
         buttons.pack(fill="x", pady=(10, 0))
         ttk.Button(buttons, text="浏览项目文件……", command=lambda: (win.destroy(), self._browse_project_file())).pack(side="left")
-        ttk.Button(buttons, text="移除失效记录", command=remove_missing).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            buttons,
+            text=TEXT["remove_recent"],
+            command=lambda: self._remove_selected_recent(tree, win),
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            buttons,
+            text=TEXT["delete_project"],
+            command=lambda: self._delete_selected_project(tree, win),
+        ).pack(side="left", padx=(8, 0))
         ttk.Button(buttons, text="取消", command=win.destroy).pack(side="right")
         ttk.Button(buttons, text="打开", command=open_selected, style="Primary.TButton").pack(side="right", padx=(0, 8))
 
