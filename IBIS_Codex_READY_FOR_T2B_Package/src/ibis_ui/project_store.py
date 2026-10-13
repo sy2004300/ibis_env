@@ -32,12 +32,14 @@ class ProjectStore:
     def __init__(self, workspace: Path | None = None):
         self.workspace = (workspace or default_workspace()).expanduser().resolve()
         self.projects_root = self.workspace / "projects"
+        self.trash_root = self.workspace / "trash"
         self.state_path = self.workspace / "ui_state.json"
 
     def ensure_ready(self) -> None:
         """Create and verify the user-writable workspace before the UI starts."""
         try:
             self.projects_root.mkdir(parents=True, exist_ok=True)
+            self.trash_root.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.workspace, delete=False) as stream:
                 probe = Path(stream.name)
                 stream.write("IBIS Automation workspace check\n")
@@ -190,6 +192,34 @@ class ProjectStore:
             self.state_path,
             {"schema_version": 2, "recent_project_id": recent_id, "recent_projects": remaining},
         )
+
+    def delete_project(self, project_id: str) -> Path:
+        """Soft-delete a managed project without touching external input files."""
+
+        validated = self._validated_project_id(project_id)
+        source = self.project_dir(validated)
+        if not source.is_dir():
+            raise ProjectStorageError("PROJECT_NOT_FOUND", f"项目不存在：{validated}")
+
+        self.trash_root.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        target = self.trash_root / f"{validated}_{stamp}"
+        suffix = 1
+        while target.exists():
+            target = self.trash_root / f"{validated}_{stamp}_{suffix}"
+            suffix += 1
+        try:
+            os.replace(source, target)
+        except OSError as exc:
+            raise ProjectStorageError(
+                "PROJECT_DELETE_FAILED",
+                f"项目删除失败：{source}（{exc}）",
+            ) from exc
+
+        # Project data is intentionally retained under workspace/trash for
+        # recovery. Only the recent-project index is removed.
+        self.remove_recent(validated)
+        return target
 
     def load(self, project_id: str) -> ProjectDocument:
         path = self.project_path(project_id)
