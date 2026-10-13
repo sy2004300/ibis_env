@@ -137,7 +137,7 @@ class UIPhase1ProjectTests(unittest.TestCase):
             self.controller.case_tree(),
             [{"module": MODULE, "directions": [{"direction": "DRV", "rons": [30]}]}],
         )
-        with self.assertRaisesRegex(ProjectStateError, "UI-4"):
+        with self.assertRaisesRegex(ProjectStateError, "保存"):
             self.controller.ensure_generate_allowed()
 
         self.controller.update_module(MODULE, "tr.TYP", "21p")

@@ -289,7 +289,7 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertEqual(START_PAGE_ACTIONS, ("new_project", "open_project"))
         self.assertEqual(
             PROJECT_PAGE_ACTIONS,
-            ("import_config", "save_config", "delete_project", "advanced", "about"),
+            ("import_config", "export_config", "save_config", "delete_project", "advanced", "about"),
         )
         self.assertNotIn("import_config", START_PAGE_ACTIONS)
         self.assertNotIn("new_project", PROJECT_PAGE_ACTIONS)
@@ -304,12 +304,12 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertEqual({row["generate_type"] for row in config["modules"]}, {"DRV", "RCV", "BOTH"})
 
     def test_ui12_version_and_packaging_contract(self) -> None:
-        self.assertEqual(APP_VERSION, "0.1.2.1")
+        self.assertEqual(APP_VERSION, "0.4.0")
         build_script = (PACKAGE_ROOT / "packaging" / "build_windows.py").read_text(encoding="utf-8")
         workflow = (PACKAGE_ROOT.parent / ".github" / "workflows" / "ibis-windows-package.yml").read_text(encoding="utf-8")
-        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_UI1_2_1"', build_script)
-        self.assertIn("codex/ibis-ui-phase1-2", workflow)
-        self.assertIn("IBIS_Automation_Windows_UI1_2_1", workflow)
+        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_Full_Workflow"', build_script)
+        self.assertIn("codex/ibis-ui-full-workflow", workflow)
+        self.assertIn("IBIS_Automation_Windows_Full_Workflow", workflow)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from .errors import ResourceError
 
 
 APP_NAME = "IBIS Automation"
-APP_VERSION = "0.1.2.1"
+APP_VERSION = "0.4.0"
 APP_DATA_DIRECTORY = "IBIS_Automation"
 REQUIRED_TEMPLATES = (
     "_t2b_config.ini",
@@ -77,12 +77,17 @@ class ResourceResolver:
         return self.root / "inputs"
 
     @property
+    def golden_root(self) -> Path:
+        return self.root / "golden"
+
+    @property
     def build_info_path(self) -> Path:
         return self.root / "build_info.json"
 
     def missing_required_files(self) -> list[Path]:
         required = [self.template_root / name for name in REQUIRED_TEMPLATES]
         required.append(self.demo_config)
+        required.append(self.golden_root / "demo_phy_io_diff" / "drv" / "30ohm_ibis" / "demo_phy_io_diff_drv_ron30.t2b")
         return [path for path in required if not path.is_file()]
 
     def validate(self) -> None:
