@@ -47,7 +47,7 @@ def discover(config: Config, module: str) -> list[Signal]:
         raise IbisError("MSI_ROOT_MISSING", f"MSI Root 不存在：{root}")
     mapping = config.msi_mappings.get(module)
     candidates = []
-    files = [root / mapping[0]] if mapping else sorted(root.glob("*.xlsx"))
+    files = [root / mapping[0]] if mapping else sorted(path for path in root.rglob("*.xlsx") if path.name.casefold() != "msi_master.xlsx")
     for path in files:
         try: sheets = read_workbook(path)
         except Exception as exc: raise IbisError("MSI_READ_ERROR", f"MSI 无法读取：{path}（{exc}）", "MODULE") from exc
