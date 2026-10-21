@@ -147,17 +147,15 @@ class WorkingTemplateService:
         previous = self.records.get(key, {})
         version = int(previous.get("version", 0)) + 1
         created_at = str(previous.get("created_at", "")) or _now()
-        path = self._path(module, direction)
         history = self.project_dir / "templates" / "history" / _safe(module) / direction.casefold() / f"v{version:04d}.t2b"
         _atomic_text(history, text)
-        _atomic_text(path, text)
         record = {
             "template_id": str(previous.get("template_id") or f"project:{self.project_id}:{_safe(module)}:{direction.casefold()}"),
             "display_name": display_name or str(previous.get("display_name") or f"{module} {direction} 工作模板"),
             "module": module, "direction": direction, "topology": topology,
             "created_at": created_at, "modified_at": _now(), "content_hash": _hash(text),
             "source_template_id": source_template_id or previous.get("source_template_id") or effective_template_id(config, module, direction),
-            "version": version, "path": str(path), "history_path": str(history),
+            "version": version, "path": str(history), "history_path": str(history),
             "validation": "PASS",
         }
         self.records[key] = record
@@ -215,20 +213,34 @@ class WorkingTemplateService:
         current = self.read(module, direction)
         return "".join(difflib.unified_diff(current.splitlines(True), candidate.splitlines(True), fromfile="已保存", tofile="当前编辑"))
 
-    def generation_paths(self, config: dict[str, Any]) -> dict[tuple[str, str], Path]:
+    def resolve_path(self, config: dict[str, Any], module: str, direction: str, *, validate: bool = True) -> Path:
+        """Use an existing project customization, otherwise read the selected source."""
+        record = self.records.get(self.key(module, direction))
+        item = definition(effective_template_id(config, module, direction))
+        if record:
+            path = Path(record["path"])
+            topology = str(record["topology"])
+        elif item:
+            path = self.builtin_root / item.filename
+            topology = item.topology
+        else:
+            raise ProjectValidationError("TEMPLATE_MAPPING_MISSING", f"模块 {module} {direction} 无法匹配模板，请检查模板选择。")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ProjectStorageError("TEMPLATE_READ_FAILED", f"模块 {module} {direction} 模板无法读取：{path}（{exc}）") from exc
+        validation = validate_template_text(text, direction, topology)
+        if validate and not validation.valid:
+            raise ProjectValidationError("WORKING_TEMPLATE_INVALID", f"{module} {direction}：" + "；".join(validation.errors))
+        return path
+
+    def generation_paths(self, config: dict[str, Any], selected=None) -> dict[tuple[str, str], Path]:
         result: dict[tuple[str, str], Path] = {}
+        wanted = {(key[0], key[1]) for key in selected} if selected is not None else None
         for module in config.get("modules", []):
             name = str(module["name"])
             directions = ("DRV", "RCV") if str(module["generate_type"]).upper() == "BOTH" else (str(module["generate_type"]).upper(),)
             for direction in directions:
-                record = self.records.get(self.key(name, direction))
-                if not record:
-                    raise ProjectValidationError("WORKING_TEMPLATE_MISSING", f"模块 {name} {direction} 尚未创建工作模板")
-                path = Path(record["path"])
-                if not path.is_file():
-                    raise ProjectValidationError("WORKING_TEMPLATE_FILE_MISSING", f"工作模板文件不存在：{path}")
-                validation = validate_template_text(path.read_text(encoding="utf-8"), direction, str(record["topology"]))
-                if not validation.valid:
-                    raise ProjectValidationError("WORKING_TEMPLATE_INVALID", "；".join(validation.errors))
-                result[(name, direction)] = path
+                if wanted is None or (name, direction) in wanted:
+                    result[(name, direction)] = self.resolve_path(config, name, direction)
         return result

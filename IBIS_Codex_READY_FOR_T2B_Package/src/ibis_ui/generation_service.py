@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ibis_auto.service import CaseKey, GenerationResult, expand_case_keys, generate_from_config
-from ibis_auto.validator import validate_case
+from ibis_auto.validator import validate_case, _canonical
+from ibis_auto.errors import IbisError
+from ibis_auto.service import CaseResult
 
 from .config_adapter import payload_to_core_config
 from .errors import ProjectStorageError, ProjectValidationError
@@ -130,16 +132,31 @@ class ProjectGenerationService:
         template_override = str(project.config.get("roots", {}).get("template", "")).strip()
         template_root = Path(template_override).resolve() if template_override else self.resources.template_root
         template_service = self._template_service(project, workflow, template_root)
-        template_paths = template_service.generation_paths(project.config)
-        config = payload_to_core_config(project.config, template_root=template_root, template_paths=template_paths)
+        config = payload_to_core_config(project.config, template_root=template_root)
         selected_keys = list(selected) if selected is not None else expand_case_keys(config)
         output = self.output_root(project, workflow)
         golden_root = self.resources.golden_root
-        result = generate_from_config(
-            config, output, selected=selected_keys,
-            golden_root=golden_root if golden_root.is_dir() else None,
-            overwrite_policy=overwrite_policy, cancel_requested=cancel_requested, progress=progress,
-        )
+        template_paths = {}
+        try:
+            if progress:
+                for module, direction, ron in selected_keys:
+                    progress(f"{module}/{direction}/{ron}ohm", "检查输入", "检查所选任务的模板和输入")
+            template_paths = template_service.generation_paths(project.config, selected_keys)
+            config.template_paths = template_paths
+            result = generate_from_config(
+                config, output, selected=selected_keys,
+                golden_root=golden_root if golden_root.is_dir() else None,
+                overwrite_policy=overwrite_policy, cancel_requested=cancel_requested, progress=progress,
+            )
+        except (IbisError, ProjectValidationError, ProjectStorageError, OSError) as exc:
+            message = f"生成未完成 [{getattr(exc, 'code', 'INPUT_CHECK_FAILED')}]：{exc}"
+            result = GenerationResult(False, [
+                CaseResult(f"{module}/{direction}/{ron}ohm", "FAIL", message)
+                for module, direction, ron in selected_keys
+            ])
+            if progress:
+                for row in result.cases:
+                    progress(row.key, row.status, row.message)
         records = workflow.setdefault("generation", {}).setdefault("cases", {})
         manifests = self.store.project_dir(project.project_id) / "manifests"
         by_string = {f"{module}/{direction}/{ron}ohm": (module, direction, ron) for module, direction, ron in selected_keys}
@@ -178,13 +195,7 @@ class ProjectGenerationService:
         template_override = str(project.config.get("roots", {}).get("template", "")).strip()
         template_root = Path(template_override).resolve() if template_override else self.resources.template_root
         templates = self._template_service(project, workflow, template_root)
-        paths = {}
-        try:
-            paths = templates.generation_paths(project.config)
-        except (ProjectValidationError, ProjectStorageError):
-            pass
-        config = payload_to_core_config(project.config, template_root=template_root, template_paths=paths) if paths else None
-        all_keys = expand_case_keys(config) if config else [
+        all_keys = [
             (str(module["name"]), direction, int(ron))
             for module in project.config.get("modules", [])
             for direction in (("DRV", "RCV") if str(module["generate_type"]).upper() == "BOTH" else (str(module["generate_type"]).upper(),))
@@ -199,14 +210,17 @@ class ProjectGenerationService:
                 continue
             status = str(record.get("status", "FAIL"))
             manifest_path = Path(str(record.get("manifest_path", "")))
-            template_key = (key[0], key[1])
-            if status in {"PASS", "UNVALIDATED"} and template_key in paths and manifest_path.is_file():
+            if status in {"PASS", "UNVALIDATED", "FAIL"} and manifest_path.is_file():
                 try:
                     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    current = case_fingerprint(project.config, key, paths[template_key])
+                    path = templates.resolve_path(project.config, key[0], key[1])
+                    current = case_fingerprint(project.config, key, path)
                     if current["combined_hash"] != manifest.get("combined_hash"):
                         status = "STALE"
                         record["message"] = "Config、模板或关键输入已发生变化"
+                except (ProjectValidationError, ProjectStorageError):
+                    status = "STALE"
+                    record["message"] = "当前模板不可用，请检查模板来源"
                 except (OSError, json.JSONDecodeError):
                     status = "FAIL"
                     record["message"] = "生成 Manifest 无法读取"
@@ -236,11 +250,13 @@ class ProjectGenerationService:
             | {path.name for path in golden.iterdir() if path.is_file()}
         )
         sections: list[str] = []
+        model_root = Path(project.config["roots"]["model"])
+        spf_root = Path(project.config["roots"]["spf"])
         for name in names:
             actual_path = generated / name
             expected_path = golden / name
-            actual = actual_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if actual_path.is_file() else []
-            expected = expected_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if expected_path.is_file() else []
+            actual = _canonical(actual_path.read_text(encoding="utf-8", errors="replace"), model_root, spf_root).splitlines(keepends=True) if actual_path.is_file() else []
+            expected = _canonical(expected_path.read_text(encoding="utf-8", errors="replace"), model_root, spf_root).splitlines(keepends=True) if expected_path.is_file() else []
             diff = list(difflib.unified_diff(expected, actual, fromfile=f"Golden/{name}", tofile=f"Generated/{name}"))
             if diff:
                 sections.extend(diff)

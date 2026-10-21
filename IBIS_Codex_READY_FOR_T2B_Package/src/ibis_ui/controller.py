@@ -20,6 +20,7 @@ from .status import ConfigStatus
 from .template_service import TemplateResourceService
 from .template_selection import ensure_template_selections, merge_manual_selections, selection_for, set_template_choice
 from .working_templates import WorkingTemplateService
+from .template_preview import render_preview
 
 
 class ProjectController:
@@ -40,8 +41,10 @@ class ProjectController:
         self.workflow_draft: dict[str, Any] | None = None
         self.has_unsaved_applied_changes = False
         self.validation_error: str | None = None
+        self.pending_edit_errors: dict[str, str] = {}
 
     def _activate(self, project: ProjectDocument, unsaved: bool) -> ProjectDocument:
+        self.pending_edit_errors.clear()
         self.project = project
         self.draft = project.clone_config()
         self.workflow_draft = copy.deepcopy(project.workflow or empty_workflow_payload())
@@ -123,6 +126,7 @@ class ProjectController:
             and (
                 self.draft != self.project.config
                 or self.workflow_draft != (self.project.workflow or empty_workflow_payload())
+                or self.pending_edit_errors
             )
         )
 
@@ -414,6 +418,22 @@ class ProjectController:
     def read_working_template(self, module: str, direction: str) -> str:
         return self.working_template_service().read(module, direction)
 
+    def template_source(self, module: str, direction: str) -> str:
+        return self.working_template_service().resolve_path(self.active_config, module, direction, validate=False).read_text(encoding="utf-8")
+
+    def preview_t2b(self, key: tuple[str, str, int], text: str | None = None) -> str:
+        return render_preview(self.active_config, self.effective_template_root(), self.working_template_service(), key, text)
+
+    def save_template_and_project(self, module: str, direction: str, text: str) -> Path:
+        """Commit the template reference with the project; failed writes keep the draft."""
+        previous = copy.deepcopy(self.workflow_draft)
+        try:
+            self.save_working_template(module, direction, text)
+            return self.save_project_draft()
+        except Exception:
+            self.workflow_draft = previous
+            raise
+
     def save_working_template(self, module: str, direction: str, text: str) -> dict[str, Any]:
         return self.working_template_service().save(self.active_config, module, direction, text)
 
@@ -477,6 +497,7 @@ class ProjectController:
 
     def apply_changes(self) -> None:
         project, draft = self._require_active()
+        self.check_pending_edits()
         try:
             validate_config_payload(draft, check_paths=True)
             template_root = self.templates.effective_root(draft)
@@ -492,6 +513,7 @@ class ProjectController:
         self.validation_error = None
 
     def discard_draft(self) -> None:
+        self.pending_edit_errors.clear()
         project, _draft = self._require_active()
         self.draft = project.clone_config()
         self.workflow_draft = copy.deepcopy(project.workflow or empty_workflow_payload())
@@ -513,6 +535,7 @@ class ProjectController:
         preserve both the previous applied snapshot and the user's draft.
         """
         project, draft = self._require_active()
+        self.check_pending_edits()
         candidate = copy.deepcopy(draft)
         try:
             validate_config_payload(candidate, check_paths=True)
@@ -532,6 +555,10 @@ class ProjectController:
         self.has_unsaved_applied_changes = False
         self.validation_error = None
         return path
+
+    def check_pending_edits(self) -> None:
+        if self.pending_edit_errors:
+            raise ProjectValidationError("PROJECT_INLINE_INVALID", "；".join(self.pending_edit_errors.values()))
 
     def save_project_draft(self) -> Path:
         """Public UI action: validate, apply and atomically save the project."""
@@ -586,7 +613,7 @@ class ProjectController:
 
     def ensure_generate_allowed(self) -> None:
         if self.is_dirty:
-            raise ProjectStateError("PROJECT_DIRTY", "存在尚未 Apply 的修改，禁止 Generate")
+            raise ProjectStateError("PROJECT_DIRTY", "存在未保存的修改，请保存项目后生成")
         if self.has_unsaved_applied_changes:
             raise ProjectStateError("PROJECT_NOT_SAVED", "项目存在尚未保存的配置，生成前请先保存项目")
         if self.project is None:

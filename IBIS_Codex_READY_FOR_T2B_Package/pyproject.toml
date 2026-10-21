@@ -1,6 +1,6 @@
 [project]
 name = "ibis-auto"
-version = "0.4.0"
+version = "0.4.1"
 description = "IBIS READY_FOR_T2B case generator"
 requires-python = ">=3.10"
 dependencies = ["openpyxl>=3.1,<4"]

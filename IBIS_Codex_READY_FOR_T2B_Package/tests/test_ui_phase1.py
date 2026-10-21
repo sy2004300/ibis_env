@@ -141,7 +141,7 @@ class UIPhase1ProjectTests(unittest.TestCase):
             self.controller.ensure_generate_allowed()
 
         self.controller.update_module(MODULE, "tr.TYP", "21p")
-        with self.assertRaisesRegex(ProjectStateError, "禁止 Generate"):
+        with self.assertRaisesRegex(ProjectStateError, "请保存项目后生成"):
             self.controller.ensure_generate_allowed()
 
     def test_headless_check_does_not_require_display(self) -> None:

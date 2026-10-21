@@ -49,7 +49,7 @@ class TableEditorDialog(tk.Toplevel):
         self.tree.bind("<Double-1>", lambda _event: self._edit())
         toolbar = ttk.Frame(body)
         toolbar.pack(fill="x", pady=(8, 0))
-        for label, command in (("新增", self._add), ("编辑", self._edit), ("删除", self._delete), ("上移", lambda: self._move(-1)), ("下移", lambda: self._move(1))):
+        for label, command in (("新增", self._add), ("编辑", self._edit), ("删除", self._delete)):
             ttk.Button(toolbar, text=label, command=command).pack(side="left", padx=(0, 5))
         ttk.Button(toolbar, text="取消", command=self.destroy).pack(side="right")
         ttk.Button(toolbar, text="应用到项目草稿", command=self._save, style="Primary.TButton").pack(side="right", padx=(0, 8))
@@ -127,13 +127,6 @@ class TableEditorDialog(tk.Toplevel):
             self.rows.pop(index)
             self._refresh(min(index, len(self.rows) - 1))
 
-    def _move(self, delta: int) -> None:
-        index = self._selected()
-        target = index + delta if index is not None else -1
-        if index is not None and 0 <= target < len(self.rows):
-            self.rows[index], self.rows[target] = self.rows[target], self.rows[index]
-            self._refresh(target)
-
     def _save(self) -> None:
         try:
             self.save_callback(copy.deepcopy(self.rows))
@@ -144,7 +137,7 @@ class TableEditorDialog(tk.Toplevel):
 
 
 class TemplateEditorDialog(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, title: str, text: str, save: Callable[[str], None], diff: Callable[[str], str]):
+    def __init__(self, parent: tk.Misc, title: str, text: str, save: Callable[[str], None], diff: Callable[[str], str], preview=None):
         super().__init__(parent)
         self.title(title)
         self.geometry("1100x720")
@@ -152,14 +145,31 @@ class TemplateEditorDialog(tk.Toplevel):
         self.grab_set()
         self.save_callback = save
         self.diff_callback = diff
+        self.original = text
+        self.preview_callback = preview
+        self.preview_after = None
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
         toolbar = ttk.Frame(self, padding=(8, 8))
         toolbar.pack(fill="x")
-        ttk.Button(toolbar, text="查找", command=self._find).pack(side="left")
-        ttk.Button(toolbar, text="查看 Diff", command=self._diff).pack(side="left", padx=5)
-        ttk.Button(toolbar, text="恢复未保存修改", command=lambda: self._replace(text)).pack(side="left")
-        ttk.Button(toolbar, text="保存工作模板", command=self._save, style="Primary.TButton").pack(side="right")
-        holder = ttk.Frame(self)
-        holder.pack(fill="both", expand=True)
+        ttk.Label(toolbar, text="左侧编辑模板原文；右侧为填参预览。保存模板同时保存当前项目配置。").pack(side="left")
+        ttk.Button(toolbar, text="取消", command=self._cancel).pack(side="right", padx=5)
+        ttk.Button(toolbar, text="保存模板", command=self._save, style="Primary.TButton").pack(side="right")
+        pane = ttk.Panedwindow(self, orient="horizontal")
+        pane.pack(fill="both", expand=True)
+        holder = ttk.Frame(pane)
+        pane.add(holder, weight=1)
+        if preview:
+            right = ttk.Frame(pane)
+            pane.add(right, weight=1)
+            self.preview_text = tk.Text(right, wrap="none", font=("TkFixedFont", 10), state="disabled")
+            yscroll = ttk.Scrollbar(right, orient="vertical", command=self.preview_text.yview)
+            xscroll = ttk.Scrollbar(right, orient="horizontal", command=self.preview_text.xview)
+            self.preview_text.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+            self.preview_text.grid(row=0, column=0, sticky="nsew")
+            yscroll.grid(row=0, column=1, sticky="ns")
+            xscroll.grid(row=1, column=0, sticky="ew")
+            right.rowconfigure(0, weight=1)
+            right.columnconfigure(0, weight=1)
         self.lines = tk.Text(holder, width=6, padx=4, takefocus=0, state="disabled", background="#f0f0f0")
         self.editor = tk.Text(holder, wrap="none", undo=True, font=("TkFixedFont", 10))
         ybar = ttk.Scrollbar(holder, orient="vertical", command=self._scroll)
@@ -174,6 +184,32 @@ class TemplateEditorDialog(tk.Toplevel):
         self.editor.tag_configure("placeholder", foreground="#005bbb", background="#e7f1ff")
         self.editor.bind("<KeyRelease>", lambda _event: self._decorate())
         self._replace(text)
+        self.editor.bind("<Control-f>", lambda _: self._find())
+
+    def _update_preview(self):
+        self.preview_after = None
+        if not self.preview_callback:
+            return
+        try:
+            value = self.preview_callback(self.editor.get("1.0", "end-1c"))
+        except Exception as exc:
+            value = f"预览错误：{exc}"
+        self.preview_text.configure(state="normal")
+        self.preview_text.delete("1.0", "end")
+        self.preview_text.insert("1.0", value)
+        self.preview_text.configure(state="disabled")
+
+    def _cancel(self):
+        if self.editor.get("1.0", "end-1c") != self.original:
+            if not messagebox.askyesno("放弃模板修改", "模板尚未保存，是否放弃本次修改？", parent=self):
+                return
+        self.destroy()
+
+    def destroy(self):
+        if self.preview_after:
+            self.after_cancel(self.preview_after)
+            self.preview_after = None
+        super().destroy()
 
     def _scroll(self, *args) -> None:
         self.editor.yview(*args)
@@ -188,6 +224,9 @@ class TemplateEditorDialog(tk.Toplevel):
         self._decorate()
 
     def _decorate(self) -> None:
+        if self.preview_after:
+            self.after_cancel(self.preview_after)
+        self.preview_after = self.after(300, self._update_preview)
         count = int(self.editor.index("end-1c").split(".")[0])
         self.lines.configure(state="normal")
         self.lines.delete("1.0", "end")
