@@ -1,9 +1,9 @@
-IBIS Automation Windows Full Workflow 0.4.1
+IBIS Automation Windows Full Workflow 0.4.2
 ==============================
 
 运行方式
 --------
-1. 将整个 IBIS_Automation_Windows_0_4_1 文件夹完整解压。
+1. 将整个 IBIS_Automation_Windows_0_4_2 文件夹完整解压。
 2. 双击 IBIS_Automation.exe。
 3. 不需要安装 Python，也不要单独移动 EXE；_internal 是运行所需目录。
 

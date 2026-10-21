@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 TEXT = {
-    "app_subtitle": "IBIS 自动化配置工具 · 全流程 0.4.1",
+    "app_subtitle": "IBIS 自动化配置工具 · 全流程 0.4.2",
     "home": "项目总览",
     "back_to_start": "返回",
     "new_project": "新建项目",

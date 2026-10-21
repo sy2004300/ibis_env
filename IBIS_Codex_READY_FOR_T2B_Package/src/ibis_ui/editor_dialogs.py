@@ -151,7 +151,7 @@ class TemplateEditorDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         toolbar = ttk.Frame(self, padding=(8, 8))
         toolbar.pack(fill="x")
-        ttk.Label(toolbar, text="左侧编辑模板原文；右侧为填参预览。保存模板同时保存当前项目配置。").pack(side="left")
+        ttk.Label(toolbar, text="左侧编辑模板原文；右侧为填参预览。保存模板先加入项目草稿；请使用顶部“保存项目”核对差异并持久化。").pack(side="left")
         ttk.Button(toolbar, text="取消", command=self._cancel).pack(side="right", padx=5)
         ttk.Button(toolbar, text="保存模板", command=self._save, style="Primary.TButton").pack(side="right")
         pane = ttk.Panedwindow(self, orient="horizontal")
@@ -259,7 +259,7 @@ class TemplateEditorDialog(tk.Toplevel):
     def _diff(self) -> None:
         diff = self.diff_callback(self.editor.get("1.0", "end-1c")) or "没有差异。"
         win = tk.Toplevel(self)
-        win.title("工作模板 Diff")
+        win.title("工作模板差异")
         win.geometry("900x600")
         text = tk.Text(win, wrap="none", font=("TkFixedFont", 10))
         text.insert("1.0", diff)

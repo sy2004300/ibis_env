@@ -61,7 +61,9 @@ class UI041GUIRegressionTests(unittest.TestCase):
         cal = v.calibration_table.variables[0]
         cal["TYP"].set("8'h35")
         self.assertEqual(self.c.active_config["corners"]["TYP"]["calibration"][cal["signal"].get()], "8'h35")
-        v._save()
+        with patch("ibis_ui.view.SaveReview", wraps=__import__("ibis_ui.review_dialogs", fromlist=["SaveReview"]).SaveReview) as review:
+            v.after(100, lambda: next(w for w in v.winfo_children() if w.winfo_class() == "Toplevel").finish(True))
+            v._save()
         v.template_panel.refresh()
         self.assertIn("35p", v.template_panel.text.get("1.0", "end"))
         self.assertIn("0.55", v.template_panel.text.get("1.0", "end"))
@@ -112,6 +114,6 @@ class UI041GUIRegressionTests(unittest.TestCase):
         dialog._replace(source.replace("[Source] Akrostar", "[Source] GUI 编辑"))
         dialog._save()
         v.update()
-        self.assertFalse(self.c.has_unsaved_changes)
+        self.assertTrue(self.c.has_unsaved_changes)  # 0.4.2 template edits join the unified draft.
         self.assertIn("GUI 编辑", v.template_panel.text.get("1.0", "end"))
         self.assertFalse(self.callback_errors)

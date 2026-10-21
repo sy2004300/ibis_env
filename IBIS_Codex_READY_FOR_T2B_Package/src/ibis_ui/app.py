@@ -20,7 +20,7 @@ from .theme import configure_process_dpi_awareness
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Full Workflow 0.4.1）")
+    result = argparse.ArgumentParser(prog="ibis-ui", description="IBIS Automation Tkinter UI（Full Workflow 0.4.2）")
     result.add_argument("--workspace", type=Path, help="项目数据 Workspace；默认使用当前系统的用户数据目录")
     result.add_argument("--check", action="store_true", help="执行不创建窗口的安装、资源和 Config 初始化检查")
     result.add_argument("--check-report", type=Path, help="将 --check 结果写入 JSON，供打包验收使用")
@@ -80,6 +80,12 @@ def headless_check(store: ProjectStore, resolver: ResourceResolver) -> dict[str,
         if len(workflow_result.cases) != 1 or workflow_result.cases[0].status != "PASS":
             detail = workflow_result.cases[0].message if workflow_result.cases else "未生成 Case"
             raise ResourceError("BUNDLED_FULL_WORKFLOW_FAILED", f"内置全流程检查失败：{detail}")
+        from .msi_master import file_sha256
+        record = next(iter(workflow_controller.project.workflow["generation"]["cases"].values()))
+        manifest = json.loads(Path(record["manifest_path"]).read_text(encoding="utf-8"))
+        master_path = Path(manifest["master_path"])
+        if "_inputs" not in master_path.parts or file_sha256(master_path) != manifest["master_sha256"]:
+            raise ResourceError("BUNDLED_MASTER_MISMATCH", "生成输入 Master 与追溯记录不一致")
         generated_t2b = Path(workflow_result.cases[0].path) / "demo_phy_io_diff_drv_ron30.t2b"
         if generated_t2b.read_text(encoding="utf-8") != preview:
             raise ResourceError("BUNDLED_PREVIEW_MISMATCH", "填参预览与实际生成 T2B 不一致")
@@ -103,6 +109,7 @@ def headless_check(store: ProjectStore, resolver: ResourceResolver) -> dict[str,
         "full_workflow_case_status": workflow_result.cases[0].status,
         "preview_matches_output": True,
         "working_copy_required": False,
+        "effective_master_verified": True,
     }
 
 

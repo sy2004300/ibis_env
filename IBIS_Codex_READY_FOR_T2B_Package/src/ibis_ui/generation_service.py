@@ -5,6 +5,7 @@ import difflib
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from ibis_auto.errors import IbisError
 from ibis_auto.service import CaseResult
 
 from .config_adapter import payload_to_core_config
+from .effective_msi import prepare, snapshot_for_generation
 from .errors import ProjectStorageError, ProjectValidationError
 from .models import ProjectDocument, utc_now
 from .project_store import ProjectStore
@@ -137,17 +139,46 @@ class ProjectGenerationService:
         output = self.output_root(project, workflow)
         golden_root = self.resources.golden_root
         template_paths = {}
+        master_manifest = None
+        master_input = None
+        fingerprints = {}
+        template_snapshots = {}
         try:
             if progress:
                 for module, direction, ron in selected_keys:
                     progress(f"{module}/{direction}/{ron}ohm", "检查输入", "检查所选任务的模板和输入")
             template_paths = template_service.generation_paths(project.config, selected_keys)
             config.template_paths = template_paths
-            result = generate_from_config(
-                config, output, selected=selected_keys,
-                golden_root=golden_root if golden_root.is_dir() else None,
-                overwrite_policy=overwrite_policy, cancel_requested=cancel_requested, progress=progress,
-            )
+            if cancel_requested and cancel_requested():
+                result = GenerationResult(False, [CaseResult(f"{m}/{d}/{r}ohm", "已取消", "用户取消，尚未构建输入") for m, d, r in selected_keys])
+                if progress:
+                    for row in result.cases:
+                        progress(row.key, row.status, row.message)
+            else:
+                effective, master, master_manifest = prepare(project.config, workflow, self.store.project_dir(project.project_id))
+                effective, master_input = snapshot_for_generation(effective, master, master_manifest, output)
+                for key in selected_keys:
+                    original = template_paths[(key[0], key[1])]
+                    fingerprints[key] = case_fingerprint(project.config, key, original)
+                    checksum = fingerprints[key]["template_hash"]
+                    target = output / "_inputs" / "templates" / checksum / original.name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists() and _sha256(target) != checksum:
+                        raise ProjectValidationError("TEMPLATE_SNAPSHOT_CHANGED", f"模板历史快照被修改：{target}")
+                    if not target.exists():
+                        shutil.copyfile(original, target)
+                    if _sha256(target) != checksum:
+                        raise ProjectValidationError("TEMPLATE_SOURCE_CHANGED", "复制期间模板发生变化，请重试")
+                    template_snapshots[(key[0], key[1])] = target
+                for source in master_manifest["sources"]:
+                    if _sha256(Path(source["source_workbook"])) != source["sha256"]:
+                        raise ProjectValidationError("MSI_SOURCE_CHANGED", "准备输入期间原始 MSI 发生变化，未启动生成，请重试")
+                config = payload_to_core_config(effective, template_root=template_root, template_paths=template_snapshots)
+                result = generate_from_config(
+                    config, output, selected=selected_keys,
+                    golden_root=golden_root if golden_root.is_dir() else None,
+                    overwrite_policy=overwrite_policy, cancel_requested=cancel_requested, progress=progress,
+                )
         except (IbisError, ProjectValidationError, ProjectStorageError, OSError) as exc:
             message = f"生成未完成 [{getattr(exc, 'code', 'INPUT_CHECK_FAILED')}]：{exc}"
             result = GenerationResult(False, [
@@ -166,18 +197,23 @@ class ProjectGenerationService:
                 "key": row.key, "status": row.status, "message": row.message,
                 "output_path": row.path, "updated_at": utc_now(),
             }
-            if key and row.status in {"PASS", "UNVALIDATED", "FAIL"} and row.path and Path(row.path).is_dir():
+            if key and row.status in {"PASS", "UNVALIDATED", "FAIL"} and row.path and Path(row.path).is_dir() and not row.message.startswith("["):
                 template = template_paths[(key[0], key[1])]
-                fingerprint = case_fingerprint(project.config, key, template)
+                fingerprint = fingerprints.get(key) or case_fingerprint(project.config, key, template)
                 case_path = Path(row.path)
                 output_files = {path.name: _sha256(path) for path in sorted(case_path.iterdir()) if path.is_file()}
                 manifest = {
                     "project_id": project.project_id, "module": key[0], "direction": key[1], "ron": key[2],
                     "generator_version": APP_VERSION, "git_commit": app_metadata().git_commit,
                     **fingerprint, "output_files": output_files, "generated_at": utc_now(),
+                    "config_snapshot": project.config, "effective_config_snapshot": effective,
+                    "template_snapshot": str(template_snapshots[(key[0], key[1])]),
+                    "master_path": str(master_input), "master_sha256": master_manifest["sha256"] if master_manifest else "",
+                    "master_fingerprint": master_manifest["fingerprint"] if master_manifest else "",
+                    "raw_msi_sources": master_manifest["sources"] if master_manifest else [],
                     "validation_status": row.status, "validation_message": row.message,
                 }
-                manifest_path = manifests / f"{key[0]}__{key[1].lower()}__{key[2]}ohm.json"
+                manifest_path = manifests / f"{key[0]}__{key[1].lower()}__{key[2]}ohm_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.json"
                 _atomic_json(manifest_path, manifest)
                 record["manifest_path"] = str(manifest_path)
                 record["fingerprint"] = fingerprint["combined_hash"]
@@ -215,6 +251,23 @@ class ProjectGenerationService:
                     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                     path = templates.resolve_path(project.config, key[0], key[1])
                     current = case_fingerprint(project.config, key, path)
+                    master = Path(manifest.get("master_path", ""))
+                    if manifest.get("master_sha256") and (not master.is_file() or _sha256(master) != manifest["master_sha256"]):
+                        status = "FAIL"
+                        record["message"] = "本次生成使用的 Master 缺失或被修改，追溯检查失败"
+                    for source in manifest.get("raw_msi_sources", []):
+                        raw = Path(source["source_workbook"])
+                        if not raw.is_file() or _sha256(raw) != source["sha256"]:
+                            status = "STALE"
+                            record["message"] = "原始 MSI 已变化，请重新准备有效 Master 并生成"
+                            break
+                    case_dir = Path(record.get("output_path", ""))
+                    for filename, expected in manifest.get("output_files", {}).items():
+                        file = case_dir / filename
+                        if not file.is_file() or _sha256(file) != expected:
+                            status = "FAIL"
+                            record["message"] = "生成文件缺失或被修改，请重新检查并生成"
+                            break
                     if current["combined_hash"] != manifest.get("combined_hash"):
                         status = "STALE"
                         record["message"] = "Config、模板或关键输入已发生变化"
@@ -232,6 +285,19 @@ class ProjectGenerationService:
         output = self.output_root(project, workflow) / key[0] / key[1].lower() / f"{key[2]}ohm_ibis"
         if not output.is_dir():
             return "FAIL", "Case 输出目录不存在"
+        manifest_record = workflow.get("generation", {}).get("cases", {}).get(f"{key[0]}/{key[1]}/{key[2]}ohm", {})
+        if manifest_record.get("manifest_path"):
+            try:
+                manifest = json.loads(Path(manifest_record["manifest_path"]).read_text(encoding="utf-8"))
+                master = Path(manifest.get("master_path", ""))
+                if manifest.get("master_sha256") and (not master.is_file() or _sha256(master) != manifest["master_sha256"]):
+                    return "FAIL", "本次生成输入 Master 缺失或被修改"
+                for filename, checksum in manifest.get("output_files", {}).items():
+                    path = output / filename
+                    if not path.is_file() or _sha256(path) != checksum:
+                        return "FAIL", f"生成文件与本次输入对应的记录不一致：{filename}"
+            except (OSError, ValueError):
+                return "FAIL", "生成追溯记录无法读取"
         config = payload_to_core_config(project.config, template_root=self.resources.template_root)
         golden = self.resources.golden_root / key[0] / key[1].lower() / f"{key[2]}ohm_ibis"
         return validate_case(output, golden if golden.is_dir() else None, config.roots["model"], config.roots["spf"])

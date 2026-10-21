@@ -55,7 +55,7 @@ class TemplatePanel(ttk.Frame):
         holder.rowconfigure(0, weight=1)
         holder.columnconfigure(0, weight=1)
         self.text.tag_configure("changed", background="#fff2c6")
-        ttk.Label(self, text="这里是当前配置填参预览，不代表已经生成文件。修改电压、Tr/Tf 请到“参数配置”；同模块同方向的 Ron 共用模板。", wraplength=900).pack(fill="x", pady=5)
+        ttk.Label(self, text="Synthetic QA 等内容是合成示例元数据，不是正式项目要求。这里是当前配置填参预览，不代表已经生成文件。修改电压、Tr/Tf 请到“参数配置”；同模块同方向的 Ron 共用模板。", wraplength=900).pack(fill="x", pady=5)
 
     def set_case(self, module, direction=None, ron=None):
         if module != self.module:
@@ -97,7 +97,8 @@ class TemplatePanel(ttk.Frame):
         try:
             self.controller.check_pending_edits()
             path = self.controller.working_template_service().resolve_path(self.controller.active_config, self.module, direction, validate=False)
-            self.source_label.configure(text=f"使用模板：{'项目自定义 v' + str(record['version']) if record else '直接使用母模板'} · {path.name}")
+            origin = self.controller.template_origin(self.module, direction)
+            self.source_label.configure(text=f"模板来源：{origin['kind']} · 实际路径：{path}\n{'外部文件已发生变化，请核对当前预览。' if origin.get('changed') else ''}", wraplength=1100)
             self.edit_button.configure(state="normal")
             key = self.key()
             rendered = self.controller.preview_t2b(key)
@@ -121,11 +122,14 @@ class TemplatePanel(ttk.Frame):
         direction = self.direction.get()
         key = f"{self.module}|{direction}"
         records = (self.controller.workflow_draft or {}).get("working_templates", {})
-        if key in records and not messagebox.askyesno("更换模板来源", "当前使用项目自定义模板。更换来源后将使用新模板，历史文件保留。是否继续？", parent=self):
+        if self.controller.template_origin(self.module, direction)["kind"] == "项目自定义模板" and not messagebox.askyesno("更换模板来源", "当前使用项目自定义模板。更换来源后将使用新模板，历史文件保留。是否继续？", parent=self):
             self.refresh()
             return
         self.controller.update_template(self.module, direction, self.choices[self.source.get()])
-        records.pop(key, None)
+        from .template_selection import definition, effective_template_id
+        item = definition(effective_template_id(self.controller.active_config, self.module, direction))
+        path = self.controller.effective_template_root() / item.filename
+        self.controller.set_template_source(self.module, direction, "外部模板" if self.controller.template_override() else "内置母模板", str(path) if self.controller.template_override() else "")
         self.changed()
         self.refresh()
 
@@ -138,7 +142,7 @@ class TemplatePanel(ttk.Frame):
             return
 
         def save(value):
-            self.controller.save_template_and_project(module, direction, value)
+            self.controller.save_working_template(module, direction, value)
             self.changed()
             self.refresh()
 

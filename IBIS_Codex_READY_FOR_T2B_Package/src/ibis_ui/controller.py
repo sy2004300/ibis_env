@@ -21,6 +21,8 @@ from .template_service import TemplateResourceService
 from .template_selection import ensure_template_selections, merge_manual_selections, selection_for, set_template_choice
 from .working_templates import WorkingTemplateService
 from .template_preview import render_preview
+from .configuration_review import changes, validate_tables
+from . import effective_msi
 
 
 class ProjectController:
@@ -232,10 +234,11 @@ class ProjectController:
             for row in draft.get(field, []):
                 if str(row.get("module", "")).casefold() == old_name.casefold():
                     row["module"] = clean
-        working = (self.workflow_draft or {}).get("working_templates", {})
-        for key in list(working):
-            if key.split("|", 1)[0].casefold() == old_name.casefold():
-                working[f"{clean}|{key.split('|', 1)[1]}"] = working.pop(key)
+        for field in ("working_templates", "template_sources", "template_baselines"):
+            working = (self.workflow_draft or {}).get(field, {})
+            for key in list(working):
+                if key.split("|", 1)[0].casefold() == old_name.casefold():
+                    working[f"{clean}|{key.split('|', 1)[1]}"] = working.pop(key)
 
     def duplicate_module(self, name: str, new_name: str) -> None:
         _project, draft = self._require_active()
@@ -265,10 +268,11 @@ class ProjectController:
             raise ProjectValidationError("PROJECT_MODULE_NOT_FOUND", f"项目中不存在模块：{name}")
         for field in ("aliases", "appends", "templates", "overrides", "attribute_overrides", "msi_mappings", "template_selections"):
             draft[field] = [row for row in draft.get(field, []) if str(row.get("module", "")).casefold() != name.casefold()]
-        working = (self.workflow_draft or {}).get("working_templates", {})
-        for key in list(working):
-            if key.split("|", 1)[0].casefold() == name.casefold():
-                del working[key]
+        for field in ("working_templates", "template_sources", "template_baselines"):
+            working = (self.workflow_draft or {}).get(field, {})
+            for key in list(working):
+                if key.split("|", 1)[0].casefold() == name.casefold():
+                    del working[key]
         return references
 
     def update_corner(self, corner: str, field: str, value: Any) -> None:
@@ -435,7 +439,9 @@ class ProjectController:
             raise
 
     def save_working_template(self, module: str, direction: str, text: str) -> dict[str, Any]:
-        return self.working_template_service().save(self.active_config, module, direction, text)
+        record = self.working_template_service().save(self.active_config, module, direction, text)
+        self.workflow_draft.setdefault("template_sources", {})[f"{module}|{direction}"] = {"kind": "项目自定义模板", "path": record["path"]}
+        return record
 
     def restore_working_template(self, module: str, direction: str, version: int | None = None) -> dict[str, Any]:
         service = self.working_template_service()
@@ -467,6 +473,34 @@ class ProjectController:
         self.validation_error = None
         _project, draft = self._require_active()
         set_template_choice(draft, module, direction, template_id)
+
+    def set_template_source(self, module, direction, kind, path=""):
+        key = f"{module}|{direction}"
+        sources = self.workflow_draft.setdefault("template_sources", {})
+        if kind == "项目自定义模板" and key not in self.workflow_draft.get("working_templates", {}):
+            raise ProjectValidationError("TEMPLATE_CUSTOM_MISSING", "该模块尚无项目自定义模板，请先在 T2B 页面修改模板并保存到草稿")
+        previous = copy.deepcopy(sources)
+        sources[key] = {"kind": kind, "path": str(Path(path).resolve()) if path else ""}
+        try:
+            self.working_template_service().resolve_path(self.active_config, module, direction)
+        except Exception:
+            self.workflow_draft["template_sources"] = previous
+            raise
+
+    def template_origin(self, module, direction):
+        key = f"{module}|{direction}"
+        source = self.workflow_draft.get("template_sources", {}).get(key)
+        custom = self.workflow_draft.get("working_templates", {}).get(key)
+        kind = source["kind"] if source else ("项目自定义模板" if custom else ("外部模板" if self.template_override() else "内置母模板"))
+        try:
+            path = self.working_template_service().resolve_path(self.active_config, module, direction, validate=False)
+            import hashlib
+            current_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        except Exception as exc:
+            return dict(kind=kind, path=str(exc), changed=False)
+        saved_sources = (self.project.workflow or {}).get("template_baselines", {})
+        saved_hash = saved_sources.get(key, {}).get("sha256")
+        return dict(kind=kind, path=str(path), changed=bool(saved_hash and current_hash != saved_hash), sha256=current_hash)
 
     def update_root(self, name: str, value: str) -> None:
         self.validation_error = None
@@ -502,6 +536,7 @@ class ProjectController:
             validate_config_payload(draft, check_paths=True)
             template_root = self.templates.effective_root(draft)
             payload_to_core_config(draft, template_root=template_root)
+            self.validate_extended(draft)
         except (ProjectValidationError, ResourceError) as exc:
             self.validation_error = str(exc)
             raise
@@ -541,12 +576,19 @@ class ProjectController:
             validate_config_payload(candidate, check_paths=True)
             template_root = self.templates.effective_root(candidate)
             payload_to_core_config(candidate, template_root=template_root)
+            self.validate_extended(candidate)
         except (ProjectValidationError, ResourceError) as exc:
             self.validation_error = str(exc)
             raise
         staged = copy.deepcopy(project)
         staged.config = candidate
         staged.workflow = copy.deepcopy(self.workflow_draft or empty_workflow_payload())
+        for module in candidate["modules"]:
+            for direction in (("DRV", "RCV") if module["generate_type"] == "BOTH" else (module["generate_type"],)):
+                origin = self.template_origin(module["name"], direction)
+                if origin.get("sha256"):
+                    key = f"{module['name']}|{direction}"
+                    staged.workflow.setdefault("template_baselines", {})[key] = origin
         staged.updated_at = utc_now()
         path = self.store.save(staged)
         self.project = staged
@@ -555,6 +597,45 @@ class ProjectController:
         self.has_unsaved_applied_changes = False
         self.validation_error = None
         return path
+
+    def validate_extended(self, payload):
+        def pins(module, direction):
+            try:
+                return [row["original_pin"] for row in self.spf_interface_preview(module, direction)["pins"]]
+            except ProjectValidationError:
+                return []  # Missing external roots remain diagnosed by input checking.
+        validate_tables(payload, pins)
+        # Validate explicit mappings and overrides, including cross-section references.
+        if payload["msi_mappings"] or payload["overrides"] or payload["attribute_overrides"]:
+            effective_msi.inspect(payload, self.workflow_draft or {}).require_valid()
+
+    def review_changes(self):
+        project, draft = self._require_active()
+        self.check_pending_edits()
+        validate_config_payload(draft, check_paths=True)
+        payload_to_core_config(draft, template_root=self.effective_template_root())
+        self.validate_extended(draft)
+        path = self.store.project_dir(project.project_id) / "project.json"
+        before = self.store.load_file(path) if path.is_file() else None
+        baseline = before.to_dict() if before else {}
+        current = project.to_dict()
+        current["config"] = copy.deepcopy(draft)
+        current["workflow"] = copy.deepcopy(self.workflow_draft)
+        for field in ("created_at", "updated_at"):
+            baseline.pop(field, None)
+            current.pop(field, None)
+        return changes(baseline, current)
+
+    def effective_msi_preview(self):
+        return effective_msi.inspect(self.active_config, self.workflow_draft or {})
+
+    def prepare_master(self, restore=False):
+        project, draft = self._require_active()
+        effective, path, manifest = effective_msi.prepare(draft, self.workflow_draft, self.store.project_dir(project.project_id), restore=restore)
+        return path
+
+    def msi_candidates(self):
+        return effective_msi.candidates(effective_msi.source_payload(self.active_config, self.workflow_draft or {}))
 
     def check_pending_edits(self) -> None:
         if self.pending_edit_errors:

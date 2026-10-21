@@ -217,7 +217,16 @@ class WorkingTemplateService:
         """Use an existing project customization, otherwise read the selected source."""
         record = self.records.get(self.key(module, direction))
         item = definition(effective_template_id(config, module, direction))
-        if record:
+        explicit = self.workflow.get("template_sources", {}).get(self.key(module, direction), {})
+        kind = explicit.get("kind")
+        if kind == "外部模板" and explicit.get("path"):
+            path = Path(explicit["path"])
+            topology = item.topology if item else str(selection_for(config, module).get("topology", ""))
+        elif kind == "内置母模板" and item:
+            from .runtime import ResourceResolver
+            path = ResourceResolver.current().template_root / item.filename
+            topology = item.topology
+        elif record and kind in {None, "项目自定义模板"}:
             path = Path(record["path"])
             topology = str(record["topology"])
         elif item:
