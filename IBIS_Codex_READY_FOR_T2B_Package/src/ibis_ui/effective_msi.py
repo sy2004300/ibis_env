@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import tempfile
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -88,6 +89,7 @@ def inspect(payload, workflow):
     for module_row in raw['modules']:
         module = module_row['name']
         sheet = ''
+        signal_context = ''
         try:
             explicit = next((row for row in raw['msi_mappings'] if row['module'].casefold() == module.casefold()), None)
             if explicit:
@@ -107,29 +109,41 @@ def inspect(payload, workflow):
                 raise ValueError('工作表不存在或为空')
             columns = _columns(rows[0], column)
             names = [row[columns['signal_name']].strip() for row in rows[1:] if len(row) > columns['signal_name'] and row[columns['signal_name']].strip()]
-            if len({name.casefold() for name in names}) != len(names):
-                raise ValueError('信号名称重复')
+            counts = Counter(name.casefold() for name in names)
+            duplicates = sorted({name for name in names if counts[name.casefold()] > 1})
+            if duplicates:
+                signal_context = ', '.join(duplicates)
+                raise ValueError(f'信号名称重复：{signal_context}')
             for row in rows[1:]:
                 if len(row) <= columns['signal_name'] or not row[columns['signal_name']].strip():
                     continue
+                signal_context = row[columns['signal_name']]
                 width = row[columns['width']] if len(row) > columns['width'] else ''
-                if not width or not float(width).is_integer() or float(width) <= 0:
+                try:
+                    valid_width = bool(width) and float(width).is_integer() and float(width) > 0
+                except (ValueError, TypeError):
+                    valid_width = False
+                if not valid_width:
                     raise ValueError(f"信号 {row[columns['signal_name']]} 的 WIDTH 无效：{width}")
+            signal_context = ''
             config = payload_to_core_config(raw)
             config.msi_mappings[module] = (str(path), sheet, column)
             config.attribute_overrides = []
             original = discover(config, module)
             attrs = [row for row in raw['attribute_overrides'] if row['module'].casefold() == module.casefold()]
             if len({row['signal'].casefold() for row in attrs}) != len(attrs):
-                raise ValueError('供电域属性覆盖重复或冲突')
+                signal_context = ', '.join(row['signal'] for row in attrs)
+                raise ValueError(f'供电域属性覆盖重复或冲突：{signal_context}')
             config.attribute_overrides = attrs
             effective = discover(config, module)
             by_name = {s.name.casefold(): s for s in effective}
             for override in raw['overrides']:
+                signal_context = override['signal'] if override['module'].casefold() == module.casefold() else ''
                 if override['module'].casefold() == module.casefold() and override['signal'].casefold() not in by_name:
                     raise ValueError(f"信号值覆盖引用不存在的信号：{override['signal']}")
                 if override['module'].casefold() == module.casefold():
                     parse_logic(override['value'], module, override['signal'], by_name[override['signal'].casefold()].width)
+            signal_context = ''
             master_sheet = _safe_sheet_name(module, used)
             adjusted = copy.deepcopy(rows)
             if attrs:
@@ -157,7 +171,7 @@ def inspect(payload, workflow):
             if file_sha256(path) != before:
                 raise ValueError('读取期间原始文件发生变化，请重试')
         except Exception as exc:
-            issues.append(dict(module=module, sheet=sheet, signal='', status='Error', message=str(exc)))
+            issues.append(dict(module=module, sheet=sheet, signal=signal_context, status='Error', message=f'MSI 检查失败：{exc}'))
     identity = [{k: v for k, v in row.items() if k not in {'changed', 'status'}} for row in mappings]
     fingerprint = digest(dict(sources=identity, attributes=raw['attribute_overrides'], case_overrides=raw['overrides'], sheets=sheets))
     return EffectiveMSI(raw, mappings, signals, sheets, issues, fingerprint)

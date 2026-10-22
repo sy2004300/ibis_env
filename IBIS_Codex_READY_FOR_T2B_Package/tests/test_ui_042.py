@@ -190,6 +190,7 @@ class UI042Tests(unittest.TestCase):
         book.save(self.raw)
         book.close()
         self.assertIn('重复', self.c.effective_msi_preview().errors[0]['message'])
+        self.assertTrue(self.c.effective_msi_preview().errors[0]['signal'])
 
     def test_alias_duplicate_invalid_reference_and_append_duplicate(self):
         before = self.c.project.to_dict()
@@ -300,10 +301,11 @@ class UI042Tests(unittest.TestCase):
         from ibis_auto.msi import _columns
         ws = book.worksheets[0]
         cols = _columns([str(c.value or '') for c in ws[1]])
-        ws.cell(2, cols['width'] + 1, -1)
+        ws.cell(2, cols['width'] + 1, 'invalid-width')
         book.save(self.raw)
         book.close()
         self.assertIn('WIDTH', self.c.effective_msi_preview().errors[0]['message'])
+        self.assertTrue(self.c.effective_msi_preview().errors[0]['signal'])
 
     def test_failed_new_case_keeps_previous_success_manifest_and_outputs(self):
         self.c.generate_cases([KEY])

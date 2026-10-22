@@ -115,7 +115,7 @@ class MasterPreview(tk.Toplevel):
         for module in [r['name'] for r in self.controller.active_config['modules']]:
             row = next((r for r in self.report.mappings if r['module'] == module), {})
             issues = [r for r in self.report.issues if r['module'] == module]
-            status = 'Error' if any(i['status'] == 'Error' for i in issues) else ('Warning' if issues else 'PASS')
+            status = 'Error' if getattr(self, 'manual', False) or any(i['status'] == 'Error' for i in issues) else ('Warning' if issues else 'PASS')
             if wanted and status != wanted:
                 continue
             if search and search not in module.casefold() and not any(search in r['signal'].casefold() for r in self.report.signals.get(module, [])):
