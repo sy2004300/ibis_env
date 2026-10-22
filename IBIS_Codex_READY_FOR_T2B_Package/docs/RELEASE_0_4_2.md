@@ -86,6 +86,7 @@ GitHub Actions 在同一提交运行 Windows 原生测试、PyInstaller onedir�
 | `generation_service.py` | 正式使用 Master 输入、模板快照、版本 Manifest 与文件检查 |
 | `view.py`, `template_panel.py`, `editor_dialogs.py` | UI 接入、中文提示及统一保存流程 |
 | `working_templates.py` | 内置/外部/自定义来源统一解析 |
+| `src/ibis_auto/generator.py`, `validator.py` | 明确使用 UTF-8 读写输出，修复 Windows 中文追加正文编码；生成规则和验收标准不变 |
 | `app.py`, `runtime.py`, `ui_text.py`, `pyproject.toml` | 安装自检与 0.4.2 版本信息 |
 | `tests/test_ui_042.py`, `tests/test_ui_042_gui.py` | 数据链路、异常、真实 GUI 回归 |
 | `tests/test_ui_041_gui.py` | 更新统一草稿保存交互的原有 GUI 回归 |
@@ -99,3 +100,5 @@ Linux 在项目包目录运行 `PYTHONPATH=src python3 -m ibis_ui`。两者共�
 
 仍需用户在本地 Windows 验收显示缩放、字体、实际工程文件及工作流程；CI 窗口测试不等于人工视觉验收。
 SPICE 检查不是完整解析器，不替代仿真器语法校验。本版未运行真实 T2B、LSF，也不生成 `.ibs` 或 `C_comp_view`。
+
+Windows 首轮 CI 暴露系统默认 cp1252 编码不能写入中文 SPICE 注释，以及测试对 8.3 短路径的直接字符串比较问题。已改为明确 UTF-8 读写和规范化路径比较，保持两平台同一套业务规则。

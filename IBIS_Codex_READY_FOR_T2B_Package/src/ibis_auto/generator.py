@@ -244,10 +244,10 @@ def generate_case(config: Config, output: Path, plan: ModulePlan, direction: str
     global_config = config.roots["template"] / "_t2b_config.ini"
     if not global_config.is_file(): raise IbisError("TEMPLATE_CONFIG_MISSING", f"全局模板配置缺失：{global_config}")
     shutil.copyfile(global_config, case / "_t2b_config.ini")
-    (case / "component.sp").write_text(_component(config))
-    (case / "ckt_topology.sp").write_text(_topology(config, module, direction, top, pins))
+    (case / "component.sp").write_text(_component(config), encoding="utf-8")
+    (case / "ckt_topology.sp").write_text(_topology(config, module, direction, top, pins), encoding="utf-8")
     (case / f"{module}_{direction.lower()}_ron{impedance}.t2b").write_text(rendered, encoding="utf-8")
     for name in ("MAX", "TYP", "MIN"):
         text = _corner(config, module, direction, impedance, name, signals, set(), spice)
-        (case / f"corner_{direction.lower()}_ron{impedance}_{name.lower()}.sp").write_text(text)
+        (case / f"corner_{direction.lower()}_ron{impedance}_{name.lower()}.sp").write_text(text, encoding="utf-8")
     return case

@@ -23,7 +23,7 @@ class UI042Tests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.c = ProjectController(ProjectStore(self.root / 'workspace'), resources=ResourceResolver(ROOT))
         self.c.import_excel(ROOT / 'inputs/config/ibis_config.xlsx')
         shutil.copytree(ROOT / 'inputs/msi', self.root / 'msi')
@@ -49,7 +49,7 @@ class UI042Tests(unittest.TestCase):
         self.assertEqual(config.msi_mappings[MODULE][0], 'MSI_Master.xlsx')
         master = config.roots['msi'] / 'MSI_Master.xlsx'
         for record in self.c.project.workflow['generation']['cases'].values():
-            manifest = json.loads(Path(record['manifest_path']).read_text())
+            manifest = json.loads(Path(record['manifest_path']).read_text(encoding="utf-8"))
             self.assertEqual(file_sha256(master), manifest['master_sha256'])
             self.assertEqual(str(master), manifest['master_path'])
         self.assertEqual(file_sha256(self.raw), self.raw_hash)
@@ -78,7 +78,7 @@ class UI042Tests(unittest.TestCase):
         for case in result.cases:
             files = list(Path(case.path).glob('corner*.sp'))
             for file in files:
-                line = next(line for line in file.read_text().splitlines() if line.startswith('vreg_txffe0 '))
+                line = next(line for line in file.read_text(encoding="utf-8").splitlines() if line.startswith('vreg_txffe0 '))
                 self.assertIn('vddq_typ' if '/RCV/' in case.key and '_typ.sp' in file.name else 'dc 0', line)
 
     def test_options_append_alias_and_t2b_reach_generated_files(self):
@@ -97,12 +97,12 @@ class UI042Tests(unittest.TestCase):
         result = c.generate_cases([KEY])
         self.assertTrue(result.ready, result.cases)
         output = Path(result.cases[0].path)
-        self.assertEqual(next(output.glob('*.t2b')).read_text(), preview)
+        self.assertEqual(next(output.glob('*.t2b')).read_text(encoding="utf-8"), preview)
         self.assertIn('31p', preview)
         self.assertIn('0.54', preview)
-        self.assertIn(body, (output / 'ckt_topology.sp').read_text())
-        self.assertIn('changed_alias', (output / 'ckt_topology.sp').read_text())
-        text = (output / 'corner_drv_ron40_typ.sp').read_text()
+        self.assertIn(body, (output / 'ckt_topology.sp').read_text(encoding="utf-8"))
+        self.assertIn('changed_alias', (output / 'ckt_topology.sp').read_text(encoding="utf-8"))
+        text = (output / 'corner_drv_ron40_typ.sp').read_text(encoding="utf-8")
         self.assertLess(text.index(options[0]), text.index(options[1]))
         self.assertLess(text.index(options[1]), text.index(options[2]))
 
@@ -248,7 +248,7 @@ class UI042Tests(unittest.TestCase):
     def test_modified_output_master_invalidates_check(self):
         self.c.generate_cases([KEY])
         record = self.c.project.workflow['generation']['cases'][f'{MODULE}/DRV/40ohm']
-        manifest = json.loads(Path(record['manifest_path']).read_text())
+        manifest = json.loads(Path(record['manifest_path']).read_text(encoding="utf-8"))
         Path(manifest['master_path']).write_bytes(b'broken')
         status = next(r for r in self.c.generation_statuses() if r['direction'] == 'DRV')
         self.assertEqual(status['status'], 'FAIL')

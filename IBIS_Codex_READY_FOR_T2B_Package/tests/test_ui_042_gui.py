@@ -101,7 +101,7 @@ class UI042GUI(unittest.TestCase):
         self.v.notebook.select(self.v.t2b_tab)
         self.v.update()
         self.assertIn('Shared', self.v.template_panel.text.get('1.0', 'end'))
-        self.assertIn(str(path), self.v.template_panel.source_label.cget('text'))
+        self.assertIn(str(path.resolve()), self.v.template_panel.source_label.cget('text'))
         self.assertTrue(self.c.has_unsaved_changes)
         self.assertFalse(self.errors, self.errors)
 

@@ -499,7 +499,8 @@ class ProjectController:
         except Exception as exc:
             return dict(kind=kind, path=str(exc), changed=False)
         saved_sources = (self.project.workflow or {}).get("template_baselines", {})
-        saved_hash = saved_sources.get(key, {}).get("sha256")
+        saved = saved_sources.get(key, {})
+        saved_hash = saved.get("sha256") if saved.get("path") == str(path) else None
         return dict(kind=kind, path=str(path), changed=bool(saved_hash and current_hash != saved_hash), sha256=current_hash)
 
     def update_root(self, name: str, value: str) -> None:
