@@ -23,7 +23,7 @@ def validate_case(case: Path, golden: Path | None, model_root: Path, spf_root: P
     for expected in golden.iterdir():
         actual = case / expected.name
         if not actual.is_file(): return "FAIL", f"Golden 文件缺失：{expected.name}"
-        if _canonical(actual.read_text(errors="replace"), model_root, spf_root) != _canonical(expected.read_text(errors="replace"), model_root, spf_root):
+        if _canonical(actual.read_text(encoding="utf-8", errors="replace"), model_root, spf_root) != _canonical(expected.read_text(encoding="utf-8", errors="replace"), model_root, spf_root):
             return "FAIL", f"Golden 不一致：{expected.name}"
     return "PASS", "Golden 比较通过"
 

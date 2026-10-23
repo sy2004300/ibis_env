@@ -18,13 +18,13 @@ PYINSTALLER_DIST = BUILD_ROOT / "pyinstaller-dist"
 PYINSTALLER_WORK = BUILD_ROOT / "pyinstaller-work"
 PACKAGE_INPUT = BUILD_ROOT / "package-input"
 DIST_ROOT = PROJECT_ROOT / "dist"
-OUTPUT_NAME = "IBIS_Automation_Windows_UI1_2_1"
+OUTPUT_NAME = "IBIS_Automation_Windows_0_4_2"
 OUTPUT_DIRECTORY = DIST_ROOT / OUTPUT_NAME
 OUTPUT_ARCHIVE = DIST_ROOT / f"{OUTPUT_NAME}.zip"
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Build the native Windows UI-1.2.1 Revision onedir package")
+    result = argparse.ArgumentParser(description="Build the native Windows Full Workflow onedir package")
     result.add_argument("--commit", required=True, help="Git commit embedded in the EXE About page")
     return result
 
@@ -41,6 +41,7 @@ def _assert_package() -> None:
         OUTPUT_DIRECTORY / "README.txt",
         OUTPUT_DIRECTORY / "_internal" / "resources" / "build_info.json",
         OUTPUT_DIRECTORY / "_internal" / "resources" / "inputs" / "config" / "ibis_config.xlsx",
+        OUTPUT_DIRECTORY / "_internal" / "resources" / "golden" / "demo_phy_io_diff" / "drv" / "30ohm_ibis" / "demo_phy_io_diff_drv_ron30.t2b",
     ]
     required.extend(
         OUTPUT_DIRECTORY / "_internal" / "resources" / "templates" / "t2b" / filename

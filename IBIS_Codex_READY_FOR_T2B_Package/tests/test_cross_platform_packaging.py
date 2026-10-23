@@ -13,6 +13,7 @@ from ibis_ui.controller import ProjectController
 from ibis_ui.errors import ProjectValidationError, ResourceError
 from ibis_ui.excel_importer import ExcelImporter
 from ibis_ui.logging_utils import LOGGER_NAME, close_file_logging, configure_file_logging
+from ibis_ui.models import PROJECT_SCHEMA_VERSION
 from ibis_ui.project_store import ProjectStore
 from ibis_ui.runtime import APP_VERSION, REQUIRED_TEMPLATES, ResourceResolver, app_metadata, default_workspace
 
@@ -70,7 +71,7 @@ class CrossPlatformRuntimeTests(unittest.TestCase):
         self.assertEqual(report["status"], "PASS")
         self.assertEqual(report["mode"], "HEADLESS")
         self.assertFalse(report["gui_window_created"])
-        self.assertEqual(report["project_schema_version"], 1)
+        self.assertEqual(report["project_schema_version"], PROJECT_SCHEMA_VERSION)
         self.assertEqual(report["demo_modules"], ["demo_phy_io_diff"])
         self.assertEqual(report["model_files"], 3)
 

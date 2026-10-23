@@ -120,9 +120,14 @@ def _validate_alias_sources(config: Config, module: str, direction: str, pins: l
 
 
 def _template(config: Config, plan: ModulePlan, direction: str, impedance: int, template_type: str, top: str) -> tuple[str, str]:
-    path = config.roots["template"] / f"{template_type}.t2b"
+    path = config.template_paths.get((plan.name, direction), config.roots["template"] / f"{template_type}.t2b")
     if not path.is_file(): raise IbisError("TEMPLATE_MISSING", f"T2B 模板缺失：{path}")
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
+    return render_t2b(config, plan, direction, impedance, top, text)
+
+
+def render_t2b(config: Config, plan: ModulePlan, direction: str, impedance: int, top: str, text: str) -> tuple[str, str]:
+    """Shared pure renderer for preview and files, with no preview-only rules."""
 
     io_values = _domain_values(config, plan.ibis_io_voltage_domain, "IBIS IO Voltage Domain", plan.name)
     vih_values = _domain_values(config, plan.ibis_vih_voltage_domain, "IBIS VIH Voltage Domain", plan.name)
@@ -155,10 +160,10 @@ def _template(config: Config, plan: ModulePlan, direction: str, impedance: int, 
             f"VINL_{corner_name}": _fmt_decimal(vmeas - Decimal("0.05")),
         })
     for key, value in values.items(): text = text.replace("{{" + key + "}}", value)
-    if re.search(r"{{[^}]+}}", text): raise IbisError("TEMPLATE_PLACEHOLDER_UNKNOWN", f"模板存在未解析占位符：{path}", "CASE")
+    if re.search(r"{{[^}]+}}", text): raise IbisError("TEMPLATE_PLACEHOLDER_UNKNOWN", f"模块 {plan.name} {direction} 模板存在未解析占位符", "CASE")
     spice = re.search(r"^\[Spice type\]\s+(\S+)", text, re.M | re.I)
     if not spice or spice.group(1).casefold() not in {"spectre", "hspice"}:
-        raise IbisError("SPICE_TYPE_INVALID", f"模板 Spice type 缺失或不支持：{path}", "CASE")
+        raise IbisError("SPICE_TYPE_INVALID", f"模块 {plan.name} {direction} 模板 Spice type 缺失或不支持", "CASE")
     return text, spice.group(1).casefold()
 
 
@@ -239,10 +244,10 @@ def generate_case(config: Config, output: Path, plan: ModulePlan, direction: str
     global_config = config.roots["template"] / "_t2b_config.ini"
     if not global_config.is_file(): raise IbisError("TEMPLATE_CONFIG_MISSING", f"全局模板配置缺失：{global_config}")
     shutil.copyfile(global_config, case / "_t2b_config.ini")
-    (case / "component.sp").write_text(_component(config))
-    (case / "ckt_topology.sp").write_text(_topology(config, module, direction, top, pins))
-    (case / f"{module}_{direction.lower()}_ron{impedance}.t2b").write_text(rendered)
+    (case / "component.sp").write_text(_component(config), encoding="utf-8")
+    (case / "ckt_topology.sp").write_text(_topology(config, module, direction, top, pins), encoding="utf-8")
+    (case / f"{module}_{direction.lower()}_ron{impedance}.t2b").write_text(rendered, encoding="utf-8")
     for name in ("MAX", "TYP", "MIN"):
         text = _corner(config, module, direction, impedance, name, signals, set(), spice)
-        (case / f"corner_{direction.lower()}_ron{impedance}_{name.lower()}.sp").write_text(text)
+        (case / f"corner_{direction.lower()}_ron{impedance}_{name.lower()}.sp").write_text(text, encoding="utf-8")
     return case

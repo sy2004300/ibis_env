@@ -24,12 +24,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     source = PROJECT_ROOT / "inputs" / "config" / "ibis_config.xlsx"
     project = ExcelImporter().import_project(source, "Cross Platform Probe")
+    from ibis_ui.effective_msi import inspect
+    report = inspect(project.config, project.workflow)
+    report.require_valid()
     config = copy.deepcopy(project.config)
     config["roots"] = {name: f"<{name.upper()}_ROOT>" for name in sorted(config["roots"])}
     payload = {
         "project_schema_version": project.schema_version,
         "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "config": config,
+        "master_semantic_sheets": report.sheets,
+        "master_sources": [{k: v for k, v in row.items() if k != "source_workbook"} for row in report.mappings],
     }
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)

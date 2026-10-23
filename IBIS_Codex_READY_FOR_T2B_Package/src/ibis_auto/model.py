@@ -56,4 +56,5 @@ class Config:
     msi_mappings: dict[str, tuple[str, str, str]]
     spice_type: str = "spectre"
     spice_command: str = "spectre +preset=mx +spice +mt=4"
+    template_paths: dict[tuple[str, str], Path] = field(default_factory=dict)
 

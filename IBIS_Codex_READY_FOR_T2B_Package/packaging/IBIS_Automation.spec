@@ -11,6 +11,7 @@ build_info = Path(os.environ["IBIS_BUILD_INFO_FILE"]).resolve()
 datas = [
     (str(project_root / "templates" / "t2b"), "resources/templates/t2b"),
     (str(project_root / "inputs"), "resources/inputs"),
+    (str(project_root / "golden"), "resources/golden"),
     (str(build_info), "resources"),
 ]
 

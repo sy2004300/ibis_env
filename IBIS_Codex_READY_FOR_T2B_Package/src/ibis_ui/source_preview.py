@@ -92,6 +92,8 @@ def _mapping_by_module(config: dict[str, Any]) -> dict[str, dict[str, str]]:
 
 def preview_msi(config: dict[str, Any]) -> MSIPreviewReport:
     root = Path(str(config.get("roots", {}).get("msi", ""))).expanduser()
+    mappings = _mapping_by_module(config)
+    mapped_files = {str(row.get("file", "")).casefold() for row in mappings.values()}
     files = (
         tuple(
             sorted(
@@ -100,7 +102,7 @@ def preview_msi(config: dict[str, Any]) -> MSIPreviewReport:
                 if path.is_file()
                 and path.suffix.casefold() == ".xlsx"
                 and not path.name.startswith("~$")
-                and path.name.casefold() != "msi_master.xlsx"
+                and (path.name.casefold() != "msi_master.xlsx" or path.name.casefold() in mapped_files)
             )
         )
         if root.is_dir()
@@ -121,7 +123,6 @@ def preview_msi(config: dict[str, Any]) -> MSIPreviewReport:
             pin_columns = tuple(value for value in header if _header_norm(value) in PIN_NAME_ALIASES)
             sheets.append(MSISheetPreview(path.resolve(), sheet_name, pin_columns))
 
-    mappings = _mapping_by_module(config)
     module_results: list[MSIModulePreview] = []
     for module_row in config.get("modules", []):
         module = str(module_row.get("name", ""))
