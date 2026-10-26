@@ -6,7 +6,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Tuple
 
 from .config import parse_config, validate_overrides
 from .errors import IbisError
@@ -31,7 +31,7 @@ class GenerationResult:
     cases: list[CaseResult]
 
 
-CaseKey = tuple[str, str, int]
+CaseKey = Tuple[str, str, int]
 ProgressCallback = Callable[[str, str, str], None]
 
 
