@@ -36,11 +36,11 @@ jobs:
       - name: Run headless installed resources test
         env:
           PYTHONPATH: src
-        run: python ibis_ui.py --check --workspace "${{ runner.temp }}/ibis-python37-workspace"
+        run: python start_ibis_ui.py --check --workspace "${{ runner.temp }}/ibis-python37-workspace"
       - name: Run Tk smoke with virtual display
         env:
           PYTHONPATH: src
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb xauth
-          xvfb-run -a python ibis_ui.py --smoke-test --workspace "${{ runner.temp }}/ibis-python37-gui"
+          xvfb-run -a python start_ibis_ui.py --smoke-test --workspace "${{ runner.temp }}/ibis-python37-gui"
