@@ -74,11 +74,8 @@ def _config_defaults(config: dict[str, Any]) -> dict[tuple[str, str], str]:
 
 
 def _infer_topology(module_key: str, defaults: dict[tuple[str, str], str]) -> str:
-    topologies = {
-        item.topology
-        for direction in DIRECTIONS
-        if (item := definition(defaults.get((module_key, direction)))) is not None
-    }
+    items = (definition(defaults.get((module_key, direction))) for direction in DIRECTIONS)
+    topologies = {item.topology for item in items if item is not None}
     return next(iter(topologies)) if len(topologies) == 1 else ""
 
 
