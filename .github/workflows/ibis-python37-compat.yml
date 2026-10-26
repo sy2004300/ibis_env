@@ -1,0 +1,46 @@
+name: IBIS Python 3.7 Compatibility
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ibis-ui-0-4-2-python37]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: IBIS_Codex_READY_FOR_T2B_Package
+
+jobs:
+  py37:
+    name: Python 3.7 source and GUI tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.7'
+      - name: Install compatible Excel runtime
+        run: |
+          python -m pip install --disable-pip-version-check "openpyxl==3.0.10"
+          python -c "import tkinter, openpyxl; print('Tk', tkinter.TkVersion, 'Excel', openpyxl.__version__)"
+      - name: Compile all Core and UI source on Python 3.7
+        run: python -m compileall -q src
+      - name: Run Core, UI and regression tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Run headless installed resources test
+        env:
+          PYTHONPATH: src
+        run: python ibis_ui.py --check --workspace "${{ runner.temp }}/ibis-python37-workspace"
+      - name: Run Tk smoke with virtual display
+        env:
+          PYTHONPATH: src
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth
+          xvfb-run -a python ibis_ui.py --smoke-test --workspace "${{ runner.temp }}/ibis-python37-gui"
