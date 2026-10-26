@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ._compat37 import unlink_missing_ok
 from ibis_auto.service import CaseKey, GenerationResult, expand_case_keys, generate_from_config
 from ibis_auto.validator import validate_case, _canonical
 from ibis_auto.errors import IbisError
@@ -55,7 +56,7 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
         os.replace(temporary, path)
     except OSError as exc:
         if temporary:
-            temporary.unlink(missing_ok=True)
+            unlink_missing_ok(temporary)
         raise ProjectStorageError("GENERATION_MANIFEST_SAVE_FAILED", f"生成 Manifest 保存失败：{path}（{exc}）") from exc
 
 
