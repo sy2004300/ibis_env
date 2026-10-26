@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from openpyxl import Workbook
+from ._compat37 import unlink_missing_ok
 from ibis_auto.msi import _columns, discover
 from ibis_auto.values import parse_logic
 from ibis_auto.ooxml import read_workbook
@@ -235,7 +236,7 @@ def prepare(payload, workflow, project_dir, *, restore=False):
                     raise ProjectValidationError('MSI_SOURCE_CHANGED', '构建期间 MSI 来源变化，请重新生成')
             os.replace(temporary, target)
         finally:
-            Path(temporary).unlink(missing_ok=True)
+            unlink_missing_ok(Path(temporary))
             book.close()
     sha = file_sha256(target)
     manifest = dict(fingerprint=report.fingerprint, sha256=sha, sources=report.mappings, attribute_overrides=report.payload['attribute_overrides'], case_overrides=report.payload['overrides'])
