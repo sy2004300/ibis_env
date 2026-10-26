@@ -3,10 +3,10 @@ from __future__ import annotations
 import copy
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
-from typing import Any, Callable
+from typing import Any, Callable, Tuple, Optional
 
 
-FieldSpec = tuple[str, str, tuple[str, ...] | None, bool]
+FieldSpec = Tuple[str, str, Optional[Tuple[str, ...]], bool]
 
 
 class TableEditorDialog(tk.Toplevel):
