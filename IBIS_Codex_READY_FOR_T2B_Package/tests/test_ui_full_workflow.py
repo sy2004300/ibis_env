@@ -81,7 +81,7 @@ class FullWorkflowTests(unittest.TestCase):
                 sheet = workbook.active
                 sheet.title = "same_sheet"
                 sheet.append(["PIN_NAME", "WIDTH", "DIRECTION_TYPE", "POWER_DOMAIN", "DEFAULT_VALUE"])
-                sheet.append([filename.removesuffix(".xlsx"), 1, "Input", power, 0])
+                sheet.append([filename[:-5] if filename.endswith(".xlsx") else filename, 1, "Input", power, 0])
                 workbook.save(path)
                 originals.append((path, sha256(path)))
             preview = preview_merge(root, [])
