@@ -8,6 +8,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
+from ._compat37 import unlink_missing_ok
 from ibis_auto.config import parse_config
 
 from .config_adapter import core_semantics, payload_to_core_config
@@ -134,7 +135,7 @@ def export_config_excel(payload: dict[str, Any], target: Path) -> Path:
         os.replace(temporary, target)
     except OSError as exc:
         if temporary:
-            temporary.unlink(missing_ok=True)
+            unlink_missing_ok(temporary)
         raise ProjectStorageError("CONFIG_EXPORT_FAILED", f"Config Excel 导出失败：{target}（{exc}）") from exc
     return target
 
