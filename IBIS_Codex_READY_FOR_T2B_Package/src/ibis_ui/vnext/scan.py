@@ -358,6 +358,17 @@ def precheck(original, builtin):
             retained['status'] = 'STALE'
             issue('MSI_ORPHAN', '原 MSI 映射的模块已不存在，请核对后删除', 'msi_mappings',len(newmsi),'file',old.get('module',''))
             newmsi.append(retained)
+    # Invalid duplicate rows must remain visible across automatic rechecks;
+    # otherwise a second scan could silently drop the conflict and allow Generate.
+    for field, target, keys in [('pins',newpins,('module','direction','t2b_pin')), ('msi_mappings',newmsi,('module',))]:
+        groups = {}
+        for row in data[field]:
+            identity = tuple(row.get(k,'') for k in keys)
+            groups.setdefault(identity,[]).append(row)
+        for rows in groups.values():
+            if len(rows)>1:
+                extras = rows[:-1] if field=='pins' else rows[1:]
+                target.extend(copy.deepcopy(extras))
     data['pins'], data['msi_mappings'] = newpins, newmsi
     for d in domains:
         if not any(r.get('domain', '').casefold() == d.casefold() for r in data['voltages']):

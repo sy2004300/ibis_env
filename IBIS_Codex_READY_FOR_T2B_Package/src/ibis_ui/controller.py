@@ -113,7 +113,12 @@ class ProjectController:
 
     def load_recent(self) -> ProjectDocument | None:
         project = self.store.load_recent()
-        return self._activate(project, unsaved=False) if project else None
+        if project is None:
+            return None
+        self._activate(project, unsaved=False)
+        if "vnext" in project.config:
+            self.recheck_vnext()
+        return project
 
     def close_project(self, disposition: str = "cancel") -> bool:
         """Clear only the active project; persisted files and recent history remain."""

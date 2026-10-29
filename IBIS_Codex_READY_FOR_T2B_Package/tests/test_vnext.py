@@ -295,6 +295,19 @@ class VNextTests(unittest.TestCase):
         self.assertIn('阻断项',result.stdout)
 
 
+    def test_conflicting_mapping_rows_survive_repeated_precheck(self):
+        for field,code in [('pins','PIN_DUPLICATE'),('msi_mappings','MSI_DUPLICATE')]:
+            data=confirmed(self.data)
+            original_count=len(data[field])
+            data[field].append(copy.deepcopy(data[field][0]))
+            for _ in range(3):
+                data=precheck(data,TEMPLATES)
+                self.assertIn(code,self.codes(data))
+                self.assertEqual(original_count+1,len(data[field]))
+                self.assertTrue(write(data,self.root/'conflict.xlsx').is_file())
+            data[field].pop()
+            self.assertReady(precheck(data,TEMPLATES))
+
     def test_blocking_validation_matrix_and_untrusted_status(self):
         ready=confirmed(self.data)
         mutations=[
