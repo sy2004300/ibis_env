@@ -3,7 +3,7 @@ name: IBIS Python 3.7 Compatibility
 on:
   workflow_dispatch:
   push:
-    branches: [codex/ibis-ui-0-4-2-python37]
+    branches: [codex/ibis-ui-0-4-2-python37, codex/ibis-vnext-config]
   pull_request:
     branches: [main]
 
@@ -25,7 +25,7 @@ jobs:
           python-version: '3.7'
       - name: Install compatible Excel runtime
         run: |
-          python -m pip install --disable-pip-version-check "openpyxl==3.0.10"
+          python -m pip install --disable-pip-version-check "openpyxl==3.0.10" "et_xmlfile==1.1.0"
           python -c "import tkinter, openpyxl; print('Tk', tkinter.TkVersion, 'Excel', openpyxl.__version__)"
       - name: Compile all Core and UI source on Python 3.7
         run: python -m compileall -q src
@@ -43,4 +43,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb xauth
+          xvfb-run -a python -m unittest discover -s tests -v
           xvfb-run -a python start_ibis_ui.py --smoke-test --workspace "${{ runner.temp }}/ibis-python37-gui"
+
+  exact-python378:
+    name: Exact Python 3.7.8 and Tk 8.6
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start virtual X server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          Xvfb :91 -screen 0 1440x1000x24 -ac -nolisten tcp > /tmp/xvfb.log 2>&1 &
+      - name: Test exact runtime including real Tk widgets and Golden
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo" -v /tmp/.X11-unix:/tmp/.X11-unix \
+            -e DISPLAY=:91 -e PYTHONPATH=src \
+            -w /repo/IBIS_Codex_READY_FOR_T2B_Package \
+            python:3.7.8@sha256:6ca82c8d96a24523a71f40bb38f5682b18ca74a7a19586927c79e714b1b906c4 \
+            bash -c 'python -m pip install openpyxl==3.0.10 et_xmlfile==1.1.0 && python -m unittest discover -s tests -v && python tests/run_acceptance.py'

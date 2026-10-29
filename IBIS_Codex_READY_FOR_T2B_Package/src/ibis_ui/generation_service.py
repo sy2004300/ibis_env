@@ -131,6 +131,9 @@ class ProjectGenerationService:
         cancel_requested: Callable[[], bool] | None = None,
         progress: Callable[[str, str, str], None] | None = None,
     ) -> GenerationResult:
+        if "vnext" in project.config:
+            from .vnext.service import generate
+            return generate(self.store, self.resources, project, selected=selected, overwrite_policy=overwrite_policy, cancel_requested=cancel_requested, progress=progress)
         workflow = project.workflow or {}
         template_override = str(project.config.get("roots", {}).get("template", "")).strip()
         template_root = Path(template_override).resolve() if template_override else self.resources.template_root
@@ -227,6 +230,9 @@ class ProjectGenerationService:
         return result
 
     def case_statuses(self, project: ProjectDocument) -> list[dict[str, Any]]:
+        if "vnext" in project.config:
+            from .vnext.service import statuses
+            return statuses(project)
         workflow = project.workflow or {}
         records = workflow.get("generation", {}).get("cases", {})
         template_override = str(project.config.get("roots", {}).get("template", "")).strip()

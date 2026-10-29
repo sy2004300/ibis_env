@@ -25,6 +25,11 @@ def _fmt_decimal(value: Decimal) -> str:
 
 
 def _alias(config: Config, module: str, direction: str, pin: str) -> str:
+    if config.strict_stage1:
+        for scope in (direction, "BOTH"):
+            for (mapped_module, mapped_scope, original), alias in config.aliases.items():
+                if mapped_module == module and mapped_scope == scope and original.casefold() == pin.casefold():
+                    return alias
     return config.aliases.get((module, direction, pin), config.aliases.get((module, "BOTH", pin), pin))
 
 
@@ -169,15 +174,16 @@ def render_t2b(config: Config, plan: ModulePlan, direction: str, impedance: int,
 
 def _corner(config: Config, module: str, direction: str, impedance: int, corner_name: str, signals: list[Signal], aliases: set[str], spice: str) -> str:
     corner = config.corners[corner_name]
-    if corner.process not in SECTIONS: raise IbisError("PROCESS_UNSUPPORTED", f"Corner {corner_name} 的 Process {corner.process} 无模型映射", "CASE")
-    model_root = config.roots["model"] / spice
+    if corner.process not in SECTIONS and spice + ":" + corner.process not in config.process_sections: raise IbisError("PROCESS_UNSUPPORTED", f"Corner {corner_name} 的 Process {corner.process} 无模型映射", "CASE")
+    model_root = config.model_directories.get(spice, config.roots["model"] / spice)
     for filename in ("rbd.lib", "cap.lib", "mos_var.lib"):
         if not (model_root / filename).is_file(): raise IbisError("MODEL_FILE_MISSING", f"模型文件缺失：{model_root / filename}", "CASE")
-    sections = SECTIONS[corner.process]
+    sections = config.process_sections.get(spice + ":" + corner.process, SECTIONS.get(corner.process))
     lines = ["****************", ".protect",
              f".lib '{model_root / 'rbd.lib'}' {sections[0]}", f".lib '{model_root / 'cap.lib'}' {sections[1]}", f".lib '{model_root / 'mos_var.lib'}' {sections[2]}",
              f".inc '{corner.spf}'", ".unprotect", "", *config.simulation_options, "", "*** T2B-controlled pins (local sources disabled) ***"]
     controlled = [("VDDQ", "1"), ("VSS", "0"), ("TXOE", "0"), ("TXDAT", "0")] if direction == "DRV" else []
+    controlled = config.controlled_pins.get((module, direction), controlled)
     by_base = {s.name.casefold(): s for s in signals}
     for pin, bit in controlled:
         signal = by_base.get(pin.casefold()); domain = signal.power_domain if signal else pin
@@ -216,7 +222,7 @@ def _corner(config: Config, module: str, direction: str, impedance: int, corner_
         lines.append("")
         if raw != previous_calibration:
             lines.append(f"*** calibration = {raw} ***")
-        for pin, bit in zip(signal_bits(signal.name, signal.width), bits): lines.append(_line(pin, bit, signal.power_domain, corner_name))
+        for pin, bit in zip(signal_bits(signal.name, signal.width), bits): lines.append(_line(_alias(config, module, direction, pin) if config.strict_stage1 else pin, bit, signal.power_domain, corner_name))
         previous_calibration = raw
 
     ordinary = [s for s in signals if s.direction.casefold() in {"i", "input"} and s.name.casefold() not in controlled_names and s.name.casefold() not in calibration_names and s not in strength and s.attribute_type.casefold() not in {"power", "ground"}]
@@ -229,7 +235,7 @@ def _corner(config: Config, module: str, direction: str, impedance: int, corner_
         if any(bit == "1" for bit in bits) and signal.power_domain not in config.voltage_order:
             raise IbisError("POWER_DOMAIN_MISSING", f"模块 {module} 信号 {signal.name} 为高电平但 Power Domain {signal.power_domain!r} 未定义", "CASE")
         lines += ["", f"*** MSI default {signal.name} = {raw} ***"]
-        for pin, bit in zip(signal_bits(signal.name, signal.width), bits): lines.append(_line(pin, bit, signal.power_domain, corner_name))
+        for pin, bit in zip(signal_bits(signal.name, signal.width), bits): lines.append(_line(_alias(config, module, direction, pin) if config.strict_stage1 else pin, bit, signal.power_domain, corner_name))
     return "\n".join(lines) + "\n"
 
 

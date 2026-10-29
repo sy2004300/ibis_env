@@ -58,3 +58,8 @@ class Config:
     spice_command: str = "spectre +preset=mx +spice +mt=4"
     template_paths: dict[tuple[str, str], Path] = field(default_factory=dict)
 
+
+    process_sections: dict[str, tuple[str, str, str]] = field(default_factory=dict)
+    model_directories: dict[str, Path] = field(default_factory=dict)
+    controlled_pins: dict[tuple[str, str], list[tuple[str, str]]] = field(default_factory=dict)
+    strict_stage1: bool = False

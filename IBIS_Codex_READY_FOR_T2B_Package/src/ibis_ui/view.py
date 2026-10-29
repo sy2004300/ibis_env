@@ -129,6 +129,7 @@ class IBISApplicationView(tk.Tk):
             self.destroy()
 
     def _clear(self) -> None:
+        self.vnext_panel = None
         if self._preview_after:
             self.after_cancel(self._preview_after)
             self._preview_after = None
@@ -213,6 +214,13 @@ class IBISApplicationView(tk.Tk):
         self._clear()
         self._build_topbar()
         self._build_bottom()
+        if "vnext" in self.controller.active_config:
+            from .vnext.view import VNextPanel
+            self.vnext_panel = VNextPanel(self._content, self.controller, self)
+            self.vnext_panel.pack(fill="both", expand=True)
+            self.log_text = self.vnext_panel.log_text
+            self._refresh_status()
+            return
         body = ttk.Panedwindow(self._content, orient="horizontal")
         body.pack(fill="both", expand=True, padx=10, pady=(4, 6))
         left = ttk.Frame(body, padding=8, style="Panel.TFrame")
@@ -718,6 +726,10 @@ class IBISApplicationView(tk.Tk):
         return tree
 
     def _refresh_all(self) -> None:
+        if self.__dict__.get("vnext_panel"):
+            self.vnext_panel.refresh()
+            self._refresh_status()
+            return
         self._refresh_status()
         self._refresh_tree()
         self._refresh_overview()
@@ -734,7 +746,8 @@ class IBISApplicationView(tk.Tk):
         state = self.controller.config_status or ConfigStatus.UNMODIFIED
         style = "StatusError.TLabel" if state == ConfigStatus.ERROR else ("StatusDirty.TLabel" if state == ConfigStatus.DIRTY else "StatusSaved.TLabel")
         self.state_label.configure(text=status_label(state), style=style, background=PANEL)
-        self._schedule_preview()
+        if not self.__dict__.get("vnext_panel"):
+            self._schedule_preview()
 
     def _schedule_preview(self):
         if self._preview_after:
@@ -1194,6 +1207,9 @@ class IBISApplicationView(tk.Tk):
             self.monitor_tree.item(iid, values=(row["module"], row["direction"], row["ron"], label, "处理中" if state in ACTIVE_STATES else "已结束", f"{elapsed:.1f}s", row["message"]))
 
     def _cancel_generation(self) -> None:
+        if self.__dict__.get("vnext_panel") and self.vnext_panel.busy:
+            self.vnext_panel.cancel_event.set()
+            return
         if not self._generation_running:
             return
         self._generation_cancel.set()
@@ -1319,6 +1335,9 @@ class IBISApplicationView(tk.Tk):
             self.notebook.select(self.home_tab)
 
     def _go_config(self) -> None:
+        if self.__dict__.get("vnext_panel"):
+            self.vnext_panel.notebook.select(self.vnext_panel.config)
+            return
         if hasattr(self, "notebook") and hasattr(self, "config_tab"):
             self._refresh_config()
             self.notebook.select(self.config_tab)
@@ -1689,6 +1708,9 @@ class IBISApplicationView(tk.Tk):
             self._show_error(exc)
 
     def _open_advanced_settings(self) -> None:
+        if self.__dict__.get("vnext_panel"):
+            messagebox.showinfo("VNext 工作目录", f"项目数据、来源副本、检查日志和 Stage 1 输出均保存在：\n{self.controller.store.project_dir(self.controller.project.project_id)}\n更换工作区请使用 --workspace 参数。", parent=self)
+            return
         win = tk.Toplevel(self)
         win.title("IBIS Automation — 高级设置")
         win.geometry("860x260")
@@ -1757,6 +1779,8 @@ class IBISApplicationView(tk.Tk):
         self._refresh_all()
 
     def _save_with_review(self):
+        if self.__dict__.get("vnext_panel"):
+            self.vnext_panel.check()
         try:
             rows = self.controller.review_changes()
             if rows:
@@ -1778,6 +1802,8 @@ class IBISApplicationView(tk.Tk):
             self._refresh_all()
 
     def _export_config(self) -> None:
+        if self.__dict__.get("vnext_panel"):
+            self.vnext_panel.check()
         from tkinter import filedialog
 
         project = self.controller.project
@@ -1793,6 +1819,9 @@ class IBISApplicationView(tk.Tk):
             result = self.controller.export_config(Path(path))
         except UIProjectError as exc:
             self._show_error(exc)
+            return
+        if "vnext" in self.controller.active_config:
+            messagebox.showinfo("导出完成", f"完整 Config 已导出，保留未填写项与确认状态：\n{result}\n可在 Excel 修改后重新导入；生成仍须检查通过。", parent=self)
             return
         messagebox.showinfo("导出完成", f"Config Excel 已导出并通过 Core 语义回读：\n{result}\n\n原始 Excel 未修改。", parent=self)
 
@@ -1820,9 +1849,13 @@ class IBISApplicationView(tk.Tk):
         except UIProjectError as exc:
             self._show_error(exc)
             return
+        if "vnext" not in project.config:
+            messagebox.showinfo("旧版配置兼容模式", "检测到 0.4.2 Config，将保留原有字段及生成规则，以旧版编辑界面打开；未自动转换或覆盖来源 Excel。", parent=self)
         self._selected_module = None
         self._show_main()
         self._go_config()
+        if self.__dict__.get("vnext_panel") and any(r['severity']=='BLOCKING' for r in self.vnext_panel.data['issues']):
+            self.vnext_panel.notebook.select(1)
         if project.project_id == current_id:
             result = f"Config Excel 已导入当前项目“{project.name}”；项目名称和 UUID 均已保留，原文件只读且未修改。"
         else:
@@ -1843,15 +1876,17 @@ class IBISApplicationView(tk.Tk):
         if not self._confirm_leave_current():
             return
         try:
-            self.controller.new_project(name)
+            self.controller.new_project(name, vnext=True)
         except UIProjectError as exc:
             self._show_error(exc)
             return
         self._selected_module = None
         self._show_main()
-        self._log("新建项目：已创建内部空项目。完整 Schema 编辑将在 UI-2 实现。")
+        self._log("新建 VNext 项目：请 Import Excel 或直接填写参数；未完成也可保存和导出。")
 
     def _request_close_action(self) -> str:
+        if self.__dict__.get("vnext_panel"):
+            self.vnext_panel.flush()
         if not self.controller.has_unsaved_changes:
             return "discard"
         result = {"value": "cancel"}
@@ -1927,6 +1962,8 @@ class IBISApplicationView(tk.Tk):
         messagebox.showinfo("项目已删除", message, parent=self)
 
     def _confirm_leave_current(self) -> bool:
+        if self.__dict__.get("vnext_panel"):
+            self.vnext_panel.flush()
         if not self.controller.project:
             return True
         if self.controller.has_unsaved_changes:

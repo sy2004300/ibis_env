@@ -18,7 +18,7 @@ PYINSTALLER_DIST = BUILD_ROOT / "pyinstaller-dist"
 PYINSTALLER_WORK = BUILD_ROOT / "pyinstaller-work"
 PACKAGE_INPUT = BUILD_ROOT / "package-input"
 DIST_ROOT = PROJECT_ROOT / "dist"
-OUTPUT_NAME = "IBIS_Automation_Windows_0_4_2"
+OUTPUT_NAME = "IBIS_Automation_Windows_0_5_0"
 OUTPUT_DIRECTORY = DIST_ROOT / OUTPUT_NAME
 OUTPUT_ARCHIVE = DIST_ROOT / f"{OUTPUT_NAME}.zip"
 
@@ -96,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
 
     shutil.copytree(PYINSTALLER_DIST / "IBIS_Automation", OUTPUT_DIRECTORY)
     shutil.copy2(PROJECT_ROOT / "packaging" / "WINDOWS_README.txt", OUTPUT_DIRECTORY / "README.txt")
+    shutil.copytree(PROJECT_ROOT / "docs" / "vnext", OUTPUT_DIRECTORY / "VNext_Examples")
     _assert_package()
     shutil.make_archive(str(DIST_ROOT / OUTPUT_NAME), "zip", root_dir=DIST_ROOT, base_dir=OUTPUT_NAME)
     if not OUTPUT_ARCHIVE.is_file() or OUTPUT_ARCHIVE.stat().st_size == 0:

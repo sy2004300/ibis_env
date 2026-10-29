@@ -66,17 +66,39 @@ class ProjectController:
             imported.project_id = current.project_id
             imported.name = current.name
             imported.created_at = current.created_at
-            imported.config = merge_manual_selections(imported.config, self.draft or current.config)
+            if "vnext" not in imported.config:
+                imported.config = merge_manual_selections(imported.config, self.draft or current.config)
+            elif imported.config["vnext"]["provenance"].get("import_format") == "input" and "vnext" in (self.draft or current.config):
+                # A fresh minimal sheet has no pin/MSI tables: preserve explicit
+                # choices, then let fingerprints detect changed sources.
+                from .vnext.model import payload
+                from .vnext.scan import precheck
+                data = imported.config["vnext"]
+                previous = (self.draft or current.config)["vnext"]
+                for field in ("pins", "msi_mappings", "appends", "overrides"):
+                    data[field] = copy.deepcopy(previous[field])
+                imported.config = payload(precheck(data, self.resources.template_root))
             imported.workflow = copy.deepcopy(self.workflow_draft or current.workflow or empty_workflow_payload())
-        return self._activate(imported, unsaved=True)
+        self._activate(imported, unsaved=True)
+        if "vnext" in imported.config:
+            from .vnext.service import archive_import
+            archive_import(self.store, imported, Path(path))
+        return imported
 
-    def new_project(self, name: str) -> ProjectDocument:
+    def new_project(self, name: str, vnext=False) -> ProjectDocument:
+        if vnext:
+            from .vnext.model import empty, payload
+            from .vnext.scan import precheck
+            return self._activate(ProjectDocument.create(name, "ui", payload(precheck(empty(), self.resources.template_root))), unsaved=True)
         return self._activate(ProjectDocument.create(name, "ui", empty_config_payload()), unsaved=True)
 
     def load_project(self, project_id: str) -> ProjectDocument:
         project = self.store.load(project_id)
         self.store.remember_recent(project)
-        return self._activate(project, unsaved=False)
+        self._activate(project, unsaved=False)
+        if "vnext" in project.config:
+            self.recheck_vnext()
+        return project
 
     def open_project_file(self, path: Path) -> ProjectDocument:
         project = self.store.load_file(path)
@@ -84,7 +106,10 @@ class ProjectController:
         # Copy the validated snapshot into ProjectStore without touching the
         # selected source file, so the readable project selector can reopen it.
         self.store.save(project)
-        return self._activate(project, unsaved=False)
+        self._activate(project, unsaved=False)
+        if "vnext" in project.config:
+            self.recheck_vnext()
+        return project
 
     def load_recent(self) -> ProjectDocument | None:
         project = self.store.load_recent()
@@ -322,6 +347,12 @@ class ProjectController:
 
     def export_config(self, target: Path) -> Path:
         _project, draft = self._require_active()
+        if "vnext" in draft:
+            from .vnext.excel import write
+            if _project.source_excel and target.expanduser().resolve() == Path(_project.source_excel.path).resolve():
+                raise ProjectValidationError("EXPORT_SOURCE_READONLY", "原始导入 Excel 为只读，请另选导出文件")
+            self.recheck_vnext()
+            return write(self.active_config["vnext"], target)
         validate_config_payload(draft, check_paths=False)
         path = export_config_excel(draft, target)
         verify_export_round_trip(draft, path)
@@ -513,6 +544,8 @@ class ProjectController:
     def invalid_roots(self, draft: bool = True) -> dict[str, str]:
         project, working = self._require_active()
         config = working if draft else project.config
+        if "vnext" in config:
+            return {}
         if not config.get("modules"):
             return {}
         return {
@@ -533,6 +566,12 @@ class ProjectController:
     def apply_changes(self) -> None:
         project, draft = self._require_active()
         self.check_pending_edits()
+        if "vnext" in draft:
+            self.recheck_vnext()
+            project.config = copy.deepcopy(self.draft)
+            project.updated_at = utc_now()
+            self.has_unsaved_applied_changes = True
+            return
         try:
             validate_config_payload(draft, check_paths=True)
             template_root = self.templates.effective_root(draft)
@@ -572,6 +611,16 @@ class ProjectController:
         """
         project, draft = self._require_active()
         self.check_pending_edits()
+        if "vnext" in draft:
+            from .vnext.service import save_checked
+            self.recheck_vnext()
+            staged = copy.deepcopy(project)
+            staged.config = copy.deepcopy(self.draft)
+            staged.workflow = copy.deepcopy(self.workflow_draft or empty_workflow_payload())
+            staged.updated_at = utc_now()
+            path = save_checked(self.store, staged)
+            self._activate(staged, unsaved=False)
+            return path
         candidate = copy.deepcopy(draft)
         try:
             validate_config_payload(candidate, check_paths=True)
@@ -613,9 +662,10 @@ class ProjectController:
     def review_changes(self):
         project, draft = self._require_active()
         self.check_pending_edits()
-        validate_config_payload(draft, check_paths=True)
-        payload_to_core_config(draft, template_root=self.effective_template_root())
-        self.validate_extended(draft)
+        if "vnext" not in draft:
+            validate_config_payload(draft, check_paths=True)
+            payload_to_core_config(draft, template_root=self.effective_template_root())
+            self.validate_extended(draft)
         path = self.store.project_dir(project.project_id) / "project.json"
         before = self.store.load_file(path) if path.is_file() else None
         baseline = before.to_dict() if before else {}
@@ -700,6 +750,13 @@ class ProjectController:
             raise ProjectStateError("PROJECT_NOT_SAVED", "项目存在尚未保存的配置，生成前请先保存项目")
         if self.project is None:
             raise ProjectStateError("PROJECT_NOT_OPEN", "当前没有打开的项目")
+
+    def recheck_vnext(self, data=None):
+        from .vnext.model import payload
+        from .vnext.scan import precheck
+        checked = precheck(data if data is not None else self.active_config["vnext"], self.resources.template_root)
+        self.draft = payload(checked)
+        return checked
 
     def generation_service(self) -> ProjectGenerationService:
         return ProjectGenerationService(self.store, self.resources)

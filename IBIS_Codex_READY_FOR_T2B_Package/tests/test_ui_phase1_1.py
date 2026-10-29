@@ -189,11 +189,11 @@ class UIPhase11Tests(unittest.TestCase):
         self.assertEqual(wheel_scroll_units(0, 5), 3)
 
     def test_ui11_version_and_windows_artifact_contract(self) -> None:
-        self.assertEqual(APP_VERSION, "0.4.2")
+        self.assertEqual(APP_VERSION, "0.5.0")
         build_script = (PACKAGE_ROOT / "packaging" / "build_windows.py").read_text(encoding="utf-8")
         readme = (PACKAGE_ROOT / "packaging" / "WINDOWS_README.txt").read_text(encoding="utf-8")
-        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_0_4_2"', build_script)
-        self.assertIn("IBIS_Automation_Windows_0_4_2", readme)
+        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_0_5_0"', build_script)
+        self.assertIn("IBIS_Automation_Windows_0_5_0", readme)
 
 
 if __name__ == "__main__":

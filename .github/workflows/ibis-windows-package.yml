@@ -8,9 +8,13 @@ on:
       - codex/ibis-ui-full-workflow
       - codex/ibis-ui-0-4-1
       - codex/ibis-ui-0-4-2
+      - codex/ibis-vnext-config
   pull_request:
     branches:
       - main
+
+env:
+  PYTHONUTF8: "1"
 
 permissions:
   contents: read
@@ -51,6 +55,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb xauth
           xvfb-run -a python -m unittest discover -s tests -p "test_ui_*_gui.py" -v
+          xvfb-run -a python -m unittest discover -s tests -p "test_vnext.py" -v
           xvfb-run -a python -m ibis_ui --smoke-test --workspace "${{ runner.temp }}/ibis-gui-workspace"
 
       - name: Run Linux acceptance and Golden verification
@@ -154,11 +159,12 @@ jobs:
       - name: Verify package structure
         shell: pwsh
         run: |
-          $package = Join-Path $PWD "dist/IBIS_Automation_Windows_0_4_2"
+          $package = Join-Path $PWD "dist/IBIS_Automation_Windows_0_5_0"
           $required = @(
             "IBIS_Automation.exe",
             "_internal",
             "README.txt",
+            "VNext_Examples/IBIS_Config_Input_Final.xlsx",
             "_internal/resources/build_info.json",
             "_internal/resources/inputs/config/ibis_config.xlsx",
             "_internal/resources/templates/t2b/_t2b_config.ini",
@@ -172,12 +178,12 @@ jobs:
             $target = Join-Path $package $relative
             if (-not (Test-Path $target)) { throw "Missing package resource: $target" }
           }
-          if (-not (Test-Path "dist/IBIS_Automation_Windows_0_4_2.zip")) { throw "Windows ZIP missing" }
+          if (-not (Test-Path "dist/IBIS_Automation_Windows_0_5_0.zip")) { throw "Windows ZIP missing" }
 
       - name: Run packaged EXE headless check
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_0_4_2/IBIS_Automation.exe"
+          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_0_5_0/IBIS_Automation.exe"
           $workspace = Join-Path $env:RUNNER_TEMP "ibis-exe-workspace"
           $report = Join-Path $env:RUNNER_TEMP "ibis-exe-check.json"
           $process = Start-Process -FilePath $exe -ArgumentList @("--check", "--workspace", $workspace, "--check-report", $report) -Wait -PassThru
@@ -198,7 +204,7 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_0_4_2/IBIS_Automation.exe"
+          $exe = Join-Path $PWD "dist/IBIS_Automation_Windows_0_5_0/IBIS_Automation.exe"
           $workspace = Join-Path $env:RUNNER_TEMP "ibis-exe-gui-workspace"
           $process = Start-Process -FilePath $exe -ArgumentList @("--smoke-test", "--workspace", $workspace) -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Tk window smoke failed with exit code $($process.ExitCode)" }
@@ -224,10 +230,10 @@ jobs:
       - name: Upload downloadable Windows ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: IBIS_Automation_Windows_0_4_2
+          name: IBIS_Automation_Windows_0_5_0
           # GitHub creates the downloadable artifact ZIP. Uploading the onedir
           # contents avoids a ZIP-inside-ZIP and makes one extraction sufficient.
-          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_0_4_2/
+          path: IBIS_Codex_READY_FOR_T2B_Package/dist/IBIS_Automation_Windows_0_5_0/
           if-no-files-found: error
           compression-level: 6
           retention-days: 30

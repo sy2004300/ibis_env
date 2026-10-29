@@ -20,6 +20,13 @@ def payload_to_core_config(
 ) -> Config:
     """Convert the ProjectStore fact source into the canonical Core Config."""
 
+    if "vnext" in payload:
+        from .vnext.scan import precheck
+        from .vnext.adapter import core_config, require_ready
+        from .runtime import ResourceResolver
+        checked = precheck(payload["vnext"], ResourceResolver.current().template_root)
+        require_ready(checked)
+        return core_config(checked)
     candidate = copy.deepcopy(payload)
     validate_config_payload(candidate, check_paths=False)
     roots = {key: Path(str(value)).expanduser().resolve() for key, value in candidate["roots"].items()}
@@ -85,6 +92,12 @@ def payload_to_core_config(
         str(candidate.get("spice_command", "spectre +preset=mx +spice +mt=4")),
         template_paths or {},
     )
+    metadata = candidate.get("stage1_metadata", {})
+    if metadata:
+        config.process_sections = {key: tuple(value) for key, value in metadata["process_sections"].items()}
+        config.model_directories = {key: Path(value) for key, value in metadata["model_directories"].items()}
+        config.controlled_pins = {tuple(key.split("|")): value for key, value in metadata["controlled_pins"].items()}
+        config.strict_stage1 = True
     try:
         validate_overrides(config)
     except Exception as exc:

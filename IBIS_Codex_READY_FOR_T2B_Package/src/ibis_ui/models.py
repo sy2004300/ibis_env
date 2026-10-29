@@ -161,6 +161,10 @@ def _require_mapping(value: Any, label: str) -> dict[str, Any]:
 
 def validate_config_payload(payload: dict[str, Any], check_paths: bool = False) -> None:
     payload = _require_mapping(payload, "config")
+    if "vnext" in payload:
+        from .vnext.model import validate_shape
+        validate_shape(payload["vnext"])
+        return
     roots = _require_mapping(payload.get("roots"), "roots")
     modules = payload.get("modules")
     corners = _require_mapping(payload.get("corners"), "corners")
@@ -318,7 +322,8 @@ class ProjectDocument:
             raise ProjectValidationError("PROJECT_MODE_INVALID", f"项目模式非法：{mode}")
         now = utc_now()
         payload = copy.deepcopy(config if config is not None else empty_config_payload())
-        ensure_template_selections(payload)
+        if "vnext" not in payload:
+            ensure_template_selections(payload)
         validate_config_payload(payload, check_paths=False)
         return cls(
             str(uuid4()),
@@ -360,7 +365,8 @@ class ProjectDocument:
             raise ProjectValidationError("PROJECT_SCHEMA_INVALID", f"项目文件格式错误：{exc}") from exc
         if mode not in {"excel", "ui"} or not name.strip():
             raise ProjectValidationError("PROJECT_SCHEMA_INVALID", "项目名称或模式非法")
-        ensure_template_selections(config)
+        if "vnext" not in config:
+            ensure_template_selections(config)
         validate_config_payload(config, check_paths=False)
         source = data.get("source_excel")
         try:
