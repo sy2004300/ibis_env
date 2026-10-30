@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ._compat37 import unlink_missing_ok
 from ibis_auto.service import CaseKey, GenerationResult, expand_case_keys, generate_from_config
 from ibis_auto.validator import validate_case, _canonical
 from ibis_auto.errors import IbisError
@@ -55,7 +56,7 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
         os.replace(temporary, path)
     except OSError as exc:
         if temporary:
-            temporary.unlink(missing_ok=True)
+            unlink_missing_ok(temporary)
         raise ProjectStorageError("GENERATION_MANIFEST_SAVE_FAILED", f"生成 Manifest 保存失败：{path}（{exc}）") from exc
 
 
@@ -130,6 +131,9 @@ class ProjectGenerationService:
         cancel_requested: Callable[[], bool] | None = None,
         progress: Callable[[str, str, str], None] | None = None,
     ) -> GenerationResult:
+        if "vnext" in project.config:
+            from .vnext.service import generate
+            return generate(self.store, self.resources, project, selected=selected, overwrite_policy=overwrite_policy, cancel_requested=cancel_requested, progress=progress)
         workflow = project.workflow or {}
         template_override = str(project.config.get("roots", {}).get("template", "")).strip()
         template_root = Path(template_override).resolve() if template_override else self.resources.template_root
@@ -226,6 +230,9 @@ class ProjectGenerationService:
         return result
 
     def case_statuses(self, project: ProjectDocument) -> list[dict[str, Any]]:
+        if "vnext" in project.config:
+            from .vnext.service import statuses
+            return statuses(project)
         workflow = project.workflow or {}
         records = workflow.get("generation", {}).get("cases", {})
         template_override = str(project.config.get("roots", {}).get("template", "")).strip()

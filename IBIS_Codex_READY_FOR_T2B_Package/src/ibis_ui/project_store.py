@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from ._compat37 import unlink_missing_ok
 from .errors import ProjectStorageError, ProjectValidationError
 from .models import ProjectDocument
 from .runtime import default_workspace
@@ -46,7 +47,7 @@ class ProjectStore:
             probe.unlink()
         except OSError as exc:
             if "probe" in locals():
-                probe.unlink(missing_ok=True)
+                unlink_missing_ok(probe)
             raise ProjectStorageError(
                 "WORKSPACE_NOT_WRITABLE",
                 f"项目 Workspace 不可写，请使用 --workspace 指定其他目录：{self.workspace}（{exc}）",
@@ -78,7 +79,7 @@ class ProjectStore:
             os.replace(temporary, path)
         except (OSError, TypeError, ValueError) as exc:
             if "temporary" in locals():
-                temporary.unlink(missing_ok=True)
+                unlink_missing_ok(temporary)
             raise ProjectStorageError("PROJECT_SAVE_FAILED", f"项目保存失败：{path}（{exc}）") from exc
 
     def save(self, project: ProjectDocument) -> Path:

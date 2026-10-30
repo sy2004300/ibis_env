@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ._compat37 import unlink_missing_ok
 from .errors import ProjectStorageError, ProjectValidationError
 from .template_selection import definition, effective_template_id, selection_for
 
@@ -50,7 +51,7 @@ def _atomic_text(path: Path, text: str) -> None:
         os.replace(temporary, path)
     except OSError as exc:
         if temporary:
-            temporary.unlink(missing_ok=True)
+            unlink_missing_ok(temporary)
         raise ProjectStorageError("WORKING_TEMPLATE_SAVE_FAILED", f"工作模板保存失败：{path}（{exc}）") from exc
 
 

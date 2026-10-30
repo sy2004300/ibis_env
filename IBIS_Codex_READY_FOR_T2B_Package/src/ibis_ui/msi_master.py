@@ -11,6 +11,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 
+from ._compat37 import unlink_missing_ok
 from ibis_auto.errors import IbisError
 from ibis_auto.msi import _columns
 from ibis_auto.ooxml import read_workbook
@@ -257,7 +258,7 @@ def merge_msi_master(
         os.replace(temporary, target)
     except Exception as exc:
         if temporary:
-            temporary.unlink(missing_ok=True)
+            unlink_missing_ok(temporary)
         if isinstance(exc, (ProjectStorageError, ProjectValidationError)):
             raise
         raise ProjectStorageError("MSI_MASTER_SAVE_FAILED", f"MSI Master 保存失败，旧文件保持不变：{target}（{exc}）") from exc

@@ -304,12 +304,12 @@ class UIPhase12Tests(unittest.TestCase):
         self.assertEqual({row["generate_type"] for row in config["modules"]}, {"DRV", "RCV", "BOTH"})
 
     def test_ui12_version_and_packaging_contract(self) -> None:
-        self.assertEqual(APP_VERSION, "0.4.2")
+        self.assertEqual(APP_VERSION, "0.5.1")
         build_script = (PACKAGE_ROOT / "packaging" / "build_windows.py").read_text(encoding="utf-8")
         workflow = (PACKAGE_ROOT.parent / ".github" / "workflows" / "ibis-windows-package.yml").read_text(encoding="utf-8")
-        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_0_4_2"', build_script)
+        self.assertIn('OUTPUT_NAME = "IBIS_Automation_Windows_0_5_1"', build_script)
         self.assertIn("codex/ibis-ui-full-workflow", workflow)
-        self.assertIn("IBIS_Automation_Windows_0_4_2", workflow)
+        self.assertIn("IBIS_Automation_Windows_0_5_1", workflow)
 
 
 if __name__ == "__main__":

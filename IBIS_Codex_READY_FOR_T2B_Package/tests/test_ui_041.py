@@ -38,7 +38,7 @@ class UI041RegressionTests(unittest.TestCase):
         self.assertEqual(c.project.workflow["working_templates"], {})
         for row in result.cases:
             module, direction, ron = row.key.split("/")
-            key = module, direction, int(ron.removesuffix("ohm"))
+            key = module, direction, int(ron[:-3])
             path = next(Path(row.path).glob("*.t2b"))
             self.assertEqual(path.read_text(encoding="utf-8"), previews[key])
             self.assertEqual(output_file_count(row.path), 7)

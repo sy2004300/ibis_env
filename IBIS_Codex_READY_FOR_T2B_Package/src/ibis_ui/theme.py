@@ -67,7 +67,7 @@ def apply_modern_style(root: tk.Misc) -> str:
     family = choose_ui_font(available)
     for named_font in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
         try:
-            tkfont.nametofont(named_font, root=root).configure(family=family, size=10)
+            tkfont.nametofont(named_font).configure(family=family, size=10)
         except tk.TclError:
             pass
 

@@ -1,5 +1,13 @@
 # IBIS Codex READY_FOR_T2B Package
 
+## VNext 0.5.1（当前版本）
+
+本轮修复双栏文件预览、Signal 进制/位宽编辑和 CKT Append 映射节点误报，详见 [0.5.1 修改与兼容说明](docs/vnext/WINDOWS_FIXES_0_5_1.md)。
+
+已增加极简 Input / 完整 Generated Config 同入口导入、自动检查、待填写定位、随时导出和受检查约束的 Stage 1 生成。Python 3.7.8 与原有 0.4.2 兼容流程保留。
+
+请先阅读 [VNext 操作与兼容说明](docs/vnext/README.md) 和 [实际测试报告](docs/vnext/TEST_REPORT.md)。新项目从 [极简 Input 模板](docs/vnext/IBIS_Config_Input_0_5_1.xlsx) 开始；附件 Generated Demo 仅供布局参考。下面的历史章节继续描述旧格式兼容流程。
+
 这是用于让 Codex **从零实现 IBIS READY_FOR_T2B 自动化生成器，并自行运行验收、迭代修复** 的冻结输入包。
 
 ## 当前边界

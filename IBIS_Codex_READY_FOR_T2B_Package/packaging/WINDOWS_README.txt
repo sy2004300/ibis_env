@@ -1,9 +1,9 @@
-IBIS Automation Windows Full Workflow 0.4.2
+IBIS Automation Windows Full Workflow 0.5.1
 ==============================
 
 运行方式
 --------
-1. 将整个 IBIS_Automation_Windows_0_4_2 文件夹完整解压。
+1. 将整个 IBIS_Automation_Windows_0_5_1 文件夹完整解压。
 2. 双击 IBIS_Automation.exe。
 3. 不需要安装 Python，也不要单独移动 EXE；_internal 是运行所需目录。
 
@@ -40,3 +40,22 @@ Start-Process .\IBIS_Automation.exe -ArgumentList '--check --check-report check.
 支持 Config Section 1～10 编辑/导出、MSI Master Merge、项目工作模板及历史、
 Generate Selected/All、READY_FOR_T2B 文件检查、Golden Compare、STALE 与报告。
 本软件不会运行真实 T2B、LSF，不生成 .ibs 或 C_comp_view。
+
+VNext 新格式（0.5.1）
+-------------------
+新建项目后 Import Excel，同时支持 Input 和正式 Config_Generated。
+VNext_Examples/IBIS_Config_Input_Final.xlsx 是极简输入模板。
+Generated Demo 仅供布局参考，不是实际工程扫描结果。
+有错误也可 Save/Export；待填写项全部修正后才可 Generate T2B。
+双击参数单元格编辑；STALE 映射核对后重新确认。
+旧版 Config 会提示兼容模式并保留原有界面及功能。
+完整操作说明见 VNext_Examples/README.md。
+
+0.5.1 实测修复
+-------------
+双击 Case 后恢复文件列表 + 完整文本双栏预览，支持复制和打开输出文件夹。
+Signal 填写纯代码值，位宽取 MSI，选择中文进制；切换进制保留数值。
+CKT Append 使用确认映射后的节点，保留未知节点提示。
+新模板：VNext_Examples/IBIS_Config_Input_0_5_1.xlsx。
+旧 0.5.0 文件仍可导入；新 schema 2 文件需使用 0.5.1，勿用旧程序读取。
+详情：VNext_Examples/WINDOWS_FIXES_0_5_1.md。
