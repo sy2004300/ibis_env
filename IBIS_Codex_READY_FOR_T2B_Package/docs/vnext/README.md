@@ -1,4 +1,6 @@
-# IBIS Automation VNext 0.5.0
+# IBIS Automation VNext 0.5.1
+
+本轮增量改动与新 Signal 填写方式请先阅读 [Windows 实测修复说明](WINDOWS_FIXES_0_5_1.md)。原 0.5.0 Config 仍可导入。
 
 基线是已验证的 `codex/ibis-ui-0-4-2-python37`，提交 `c644a77`，包含 Python 3.7 与 Tk 命名字体兼容修复。新旧格式共用现有 Tk 应用、ProjectStore 和 Stage 1 Generator。没有修改 Stage 2 Merge、冻结输入、母模板、Golden 或 Acceptance 判断标准。
 
@@ -24,7 +26,7 @@ PYTHONPATH=src python3 -m ibis_ui --workspace /your/MSDV/workspace
 
 ## 数据与校验规则
 
-- `config.vnext.schema_version = 1` 是新格式的唯一事实源，仍放在 Project Schema 2 中。外层旧格式字段仅供任务树显示；进入生成器前由适配器转换到 Canonical Config，绝不只在 Generator 中硬编码新字段。
+- `config.vnext.schema_version = 2（兼容读取 1）` 是新格式的唯一事实源，仍放在 Project Schema 2 中。外层旧格式字段仅供任务树显示；进入生成器前由适配器转换到 Canonical Config，绝不只在 Generator 中硬编码新字段。
 - Input 按标题与列名读取，只解析 `Input`；支持插入额外 Module、Voltage、Signal 行。Ron 单元格支持逗号、空格、分号及常见中文分隔符，去重且校验实际 MSI code。
 - Tr/Tf 只在全局 Corner 表中编辑。方向与拓扑推导四套模板，不提供独立 Template Mapping、Simulation Options 或 MSI Attribute Override 表。必要的原有 SPICE option 与模板命令仍保留。
 - 所有必需域的 MAX/TYP/MIN 电压由用户提供，包括 VSS；软件只补域名，不编造数值。全局信号只作用于存在该信号的模块；局部非空值优先，空白继承全局/MSI。支持 Verilog b/h/d、0x、0b、十进制，并检查位宽。禁止普通覆盖改写 Ron 控制信号或 T2B 接管的 Pin。

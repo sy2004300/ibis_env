@@ -1256,44 +1256,8 @@ class IBISApplicationView(tk.Tk):
         if not raw_path or not path.is_absolute() or not path.is_dir():
             messagebox.showwarning("Case 不存在", "该 Case 尚无可查看的输出目录。", parent=self)
             return
-        files = sorted(item for item in path.iterdir() if item.is_file())
-        win = tk.Toplevel(self)
-        win.title(f"检查生成文件 — {values[0]} / {values[1]} / {values[2]}Ω")
-        win.geometry("1100x720")
-        pane = ttk.Panedwindow(win, orient="horizontal")
-        pane.pack(fill="both", expand=True)
-        left = ttk.Frame(pane, padding=6)
-        right = ttk.Frame(pane, padding=6)
-        pane.add(left, weight=1)
-        pane.add(right, weight=4)
-        listing = tk.Listbox(left, exportselection=False)
-        listing.pack(fill="both", expand=True)
-        preview = tk.Text(right, wrap="none", font=("TkFixedFont", 10))
-        ybar = ttk.Scrollbar(right, orient="vertical", command=preview.yview)
-        xbar = ttk.Scrollbar(right, orient="horizontal", command=preview.xview)
-        preview.configure(yscrollcommand=ybar.set, xscrollcommand=xbar.set)
-        preview.grid(row=0, column=0, sticky="nsew")
-        ybar.grid(row=0, column=1, sticky="ns")
-        xbar.grid(row=1, column=0, sticky="ew")
-        right.rowconfigure(0, weight=1)
-        right.columnconfigure(0, weight=1)
-        for item in files:
-            listing.insert("end", item.name)
-
-        def show(_event=None) -> None:
-            choice = listing.curselection()
-            if not choice:
-                return
-            file = files[choice[0]]
-            preview.configure(state="normal")
-            preview.delete("1.0", "end")
-            preview.insert("1.0", file.read_text(encoding="utf-8", errors="replace"))
-            preview.configure(state="disabled")
-
-        listing.bind("<<ListboxSelect>>", show)
-        if files:
-            listing.selection_set(0)
-            show()
+        from .file_preview import CaseFilePreview
+        self.case_preview = CaseFilePreview(self, path, f"检查生成文件 — {values[0]} / {values[1]} / {values[2]}Ω")
 
     def _regenerate_result_case(self) -> None:
         key = self._selected_result_key()

@@ -55,6 +55,10 @@ def confirmed(data):
 def input_book(data,path):
     book=load_workbook(PACKAGE/'docs/vnext/IBIS_Config_Input_Final.xlsx')
     sheet=book['Input']
+    # openpyxl does not shift merged ranges on insert_rows as Excel does.
+    # Unmerge the synthetic copy so later editable round trips retain cells.
+    for merged in list(sheet.merged_cells.ranges):
+        sheet.unmerge_cells(str(merged))
     # Populate by header/title, not fixed row offsets; extend rows as engineers do.
     for row in sheet:
         if row[0].value in ('Model Source','MSI Source','SPF Source','T2B Source'):

@@ -3,7 +3,7 @@ import copy
 import re
 from ..errors import ProjectValidationError
 
-VERSION = 1
+VERSION = 2
 CORNERS = ('MAX', 'TYP', 'MIN')
 STATES = ('AUTO_MATCH', 'MANUAL', 'UNRESOLVED', 'STALE')
 SOURCES = {'Model Source': 'model', 'MSI Source': 'msi', 'SPF Source': 'spf', 'T2B Source': 'template'}
@@ -17,7 +17,7 @@ def empty():
 
 
 def validate_shape(data):
-    if not isinstance(data, dict) or data.get('schema_version') != VERSION:
+    if not isinstance(data, dict) or data.get('schema_version') not in (1, VERSION):
         raise ProjectValidationError('VNEXT_SCHEMA', '不支持的 VNext 配置版本')
     for key in ('sources', 'corners', 'provenance'):
         if not isinstance(data.get(key), dict):

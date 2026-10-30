@@ -7,14 +7,14 @@ import tempfile
 from pathlib import Path, PureWindowsPath
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Border, Side, PatternFill, Font
-from .model import empty, validate_shape, CORNERS, SOURCES
+from .model import VERSION, empty, validate_shape, CORNERS, SOURCES
 from ..errors import ExcelImportError
 
 TABLES = {
     'modules': ('02 Resolved Module Plans', [('name', 'Module'), ('generate_type', 'Generate Type'), ('topology', 'Topology'), ('io_domain', 'IO Domain'), ('vih_domain', 'VIH Domain'), ('ron', 'Ron (Ω)')]),
     'pins': ('04 IBIS Pin Mapping', [('module', 'Module'), ('direction', 'Direction'), ('t2b_pin', 'T2B Pin'), ('spf_pin', 'SPF Pin'), ('status', 'Status')]),
     'appends': ('05 CKT Append', [('module', 'Module'), ('direction', 'Direction'), ('body', 'SPICE Body')]),
-    'overrides': ('06 Signal Override', [('module', 'Module'), ('direction', 'Direction'), ('signal', 'Signal'), ('MAX', 'MAX'), ('TYP', 'TYP'), ('MIN', 'MIN')]),
+    'overrides': ('06 Signal Override', [('module', 'Module'), ('direction', 'Direction'), ('signal', 'Signal'), ('MAX', 'MAX'), ('TYP', 'TYP'), ('MIN', 'MIN'), ('width', '位宽'), ('radix', '进制')]),
     'msi_mappings': ('07 MSI Mapping', [('module', 'Module'), ('file', 'Workbook'), ('sheet', 'Sheet'), ('column', 'PIN_NAME Column'), ('status', 'Status')]),
 }
 
@@ -80,7 +80,7 @@ def read(path):
         if '_VNext' in book.sheetnames:
             parts = [row[1] for row in book["_VNext"].iter_rows(values_only=True) if row and row[0] in ("metadata", "metadata_part")]
             metadata = json.loads("".join(parts)) if parts else {}
-            if metadata.get('schema_version', 1) != 1:
+            if metadata.get('schema_version', 1) not in (1, VERSION):
                 raise ExcelImportError('VNEXT_EXCEL_VERSION', '完整 Excel 版本不受支持')
         sources = table(blocks.get('input sources' if kind == 'input' else 'resolved sources', []))
         for row in sources:
@@ -104,7 +104,10 @@ def read(path):
             for section, target, field, header in [('optional voltage values', 'voltages', 'domain', 'Domain'), ('optional global signal defaults', 'signals', 'signal', 'Signal')]:
                 for row in table(blocks.get(section, [])):
                     if row.get(header, '').strip():
-                        data[target].append(dict({field: row[header].strip(), 'source': 'INPUT'}, **{c: row.get(c, '').strip() for c in CORNERS}))
+                        record = dict({field: row[header].strip(), 'source': 'INPUT'}, **{c: row.get(c, '').strip() for c in CORNERS})
+                        if target=='signals' and row.get('进制','').strip():
+                            record.update(radix=row['进制'].strip(), encoding='code')
+                        data[target].append(record)
         else:
             for row in table(blocks.get('corner', [])):
                 category, name = row.get('Category', ''), row.get('Parameter', '')
@@ -114,7 +117,10 @@ def read(path):
                 elif category in ('Voltage', 'Signal') and name:
                     field = 'domain' if category == 'Voltage' else 'signal'
                     target = 'voltages' if category == 'Voltage' else 'signals'
-                    data[target].append(dict({field: name, 'source': row.get('Source', 'MANUAL')}, **{c: row.get(c, '').strip() for c in CORNERS}))
+                    record = dict({field: name, 'source': row.get('Source', 'MANUAL')}, **{c: row.get(c, '').strip() for c in CORNERS})
+                    if target=='signals' and row.get('进制','').strip():
+                        record.update(radix=row['进制'].strip(), encoding='code')
+                    data[target].append(record)
             for field, (title, columns) in TABLES.items():
                 if field == 'modules':
                     continue
@@ -122,9 +128,30 @@ def read(path):
                 for row in table(blocks.get(key, [])):
                     record = {name: row.get(label, '') for name, label in columns}
                     if record.get('module'):
+                        if field=='overrides' and record.get('radix','').strip():
+                            record['encoding']='code'
                         if field in ('pins', 'msi_mappings') and record.get('status', '').startswith('='):
                             record['status'] = 'UNRESOLVED'
                         data[field].append(record)
+            # Excel cannot run the UI's base-switch callback. On reimport,
+            # preserve numbers in unchanged code cells when only the radix
+            # dropdown changed; explicitly edited cells use the new radix.
+            from .logic_codes import number, format_number
+            snapshots = metadata.get('signal_codes', {})
+            for field in ('signals','overrides'):
+                keys = ('signal',) if field=='signals' else ('module','direction','signal')
+                for row in data[field]:
+                    previous = [r for r in snapshots.get(field,[]) if all(r.get(k)==row.get(k) for k in keys)]
+                    if len(previous)!=1 or not row.get('radix') or row['radix']==previous[0].get('radix'):
+                        continue
+                    old = previous[0]
+                    for corner in CORNERS:
+                        raw = row.get(corner,'')
+                        if raw and raw==old.get(corner):
+                            try:
+                                row[corner] = format_number(number(raw,old['radix']),row['radix'])
+                            except ValueError:
+                                pass  # Invalid values remain visible and blocked by Precheck.
             data['provenance'] = metadata.get('provenance', {})
             # Visible cells are authoritative; metadata only retains fingerprints.
             for field in ('pins', 'msi_mappings'):
@@ -173,17 +200,23 @@ def write(data, target):
     section(title, [label for _, label in columns])
     for row in data['modules']:
         append([row.get(key, '') for key, _ in columns])
-    section('03 Corner / Power / Signal', ['Category', 'Parameter', 'MAX', 'TYP', 'MIN', 'Source'])
+    section('03 Corner / Power / Signal', ['Category', 'Parameter', 'MAX', 'TYP', 'MIN', 'Source', '位宽', '进制'])
     for category, label, key in [('Corner', 'Process', 'process'), ('Corner', 'Temperature', 'temperature'), ('Timing', 'Tr', 'tr'), ('Timing', 'Tf', 'tf'), ('SPF', 'Match Key', 'spf_key')]:
         append([category, label] + [data['corners'][c].get(key, '') for c in CORNERS] + ['MANUAL'])
     for field, category, name in [('voltages', 'Voltage', 'domain'), ('signals', 'Signal', 'signal')]:
         for row in data[field]:
-            append([category, row.get(name, '')] + [row.get(c, '') for c in CORNERS] + [row.get('source', 'MANUAL')])
+            if field=='signals':
+                from .logic_codes import display_row
+                row = display_row(row, data.get('resolved',{}), True)
+            append([category, row.get(name, '')] + [row.get(c, '') for c in CORNERS] + [row.get('source', 'MANUAL'), row.get('width',''), row.get('radix','')])
     for field, (title, columns) in TABLES.items():
         if field == 'modules':
             continue
         section(title, [label for _, label in columns])
         for row in data[field]:
+            if field=='overrides':
+                from .logic_codes import display_row
+                row = display_row(row, data.get('resolved',{}))
             append([row.get(key, '') for key, _ in columns])
     report = book.create_sheet('检查结果')
     report.append(['级别', '类别', '模块', '方向', '工艺角', '字段', '文件/工作表', '原因'])
@@ -198,11 +231,30 @@ def write(data, target):
     metadata.sheet_state = 'hidden'
     # Split before assigning cells: openpyxl truncates individual values to
     # Excel's 32767-character limit at assignment time.
-    encoded = json.dumps({k: copy.deepcopy(data[k]) for k in ('schema_version', 'provenance', 'pins', 'msi_mappings')}, ensure_ascii=False)
+    from .logic_codes import display_row
+    signal_codes = {field:[display_row(r,data.get('resolved',{}),field=='signals') for r in data[field]] for field in ('signals','overrides')}
+    encoded = json.dumps(dict({k:copy.deepcopy(data[k]) for k in ('provenance','pins','msi_mappings')}, schema_version=VERSION, signal_codes=signal_codes), ensure_ascii=False)
     metadata.append(['metadata', encoded[:30000]])
     for index in range(30000, len(encoded), 30000):
         metadata.append(['metadata_part', encoded[index:index + 30000]])
-    for col in ('A','B','C','D','E','F'):
+    from openpyxl.worksheet.datavalidation import DataValidation
+    validation = DataValidation(type='list', formula1='"二进制,十进制,十六进制"', allow_blank=True)
+    validation.errorTitle='进制错误'
+    validation.error='请选择二进制、十进制或十六进制'
+    validation.showErrorMessage=True
+    sheet.add_data_validation(validation)
+    current=''
+    for row in sheet:
+        if str(row[0].value or '').startswith(('03 ', '06 ')):
+            current=str(row[0].value)[:2]
+        elif str(row[0].value or '').startswith(('04 ', '07 ')):
+            current=''
+        elif (current=='03' and row[0].value=='Signal') or (current=='06' and row[0].value and row[0].value!='Module'):
+            validation.add(row[7])
+    for row in sheet:
+        for cell in row:
+            cell.border = border
+    for col in ('A','B','C','D','E','F','G','H'):
         sheet.column_dimensions[col].width = 28 if col != 'B' else 48
     sheet.freeze_panes = 'A3'
     temporary = None

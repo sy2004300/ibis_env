@@ -13,7 +13,8 @@ from .model import CORNERS, SOURCES, directions, parse_rons
 
 LABELS = {'modules':'模块计划', 'corners':'全局 Corner / Tr / Tf', 'voltages':'电压值（需填写）', 'signals':'全局信号默认值（可留空）', 'pins':'IBIS Pin 映射（仅 T2B [Pin]）', 'appends':'追加电路（可留空）', 'overrides':'模块信号覆盖（空白继承）', 'msi_mappings':'MSI 来源映射'}
 COLUMNS = {key: columns for key, (_, columns) in TABLES.items()}
-COLUMNS.update(corners=[('parameter','参数')]+[(c,c) for c in CORNERS], voltages=[('domain','Domain')]+[(c,c) for c in CORNERS], signals=[('signal','Signal')]+[(c,c) for c in CORNERS])
+COLUMNS.update(corners=[('parameter','参数')]+[(c,c) for c in CORNERS], voltages=[('domain','Domain')]+[(c,c) for c in CORNERS], signals=[('signal','Signal'),('width','位宽'),('radix','进制')]+[(c,c+' 代码值') for c in CORNERS])
+COLUMNS['overrides'] = [('module','Module'),('direction','Direction'),('signal','Signal'),('width','位宽'),('radix','进制')]+[(c,c+' 代码值') for c in CORNERS]
 CORNER_FIELDS = [('process','Process'), ('temperature','Temperature (°C)'), ('tr','Tr'), ('tf','Tf'), ('spf_key','SPF Match Key')]
 
 
@@ -39,6 +40,8 @@ class TableEditor(ttk.Frame):
         bar = ttk.Frame(self)
         bar.grid(row=2, column=0, sticky='w')
         ttk.Label(bar, text='双击单元格编辑；回车确认').pack(side='left', padx=4)
+        self.edit_error = ttk.Label(self, text='', foreground='#c62828')
+        self.edit_error.grid(row=3, column=0, sticky='w')
         if section not in ('corners','pins','msi_mappings'):
             ttk.Button(bar, text='新增行', command=self.add).pack(side='left')
         if section != 'corners':
@@ -49,6 +52,9 @@ class TableEditor(ttk.Frame):
     def rows(self):
         if self.section == 'corners':
             return [dict(parameter=label, **{c:self.panel.data['corners'][c][key] for c in CORNERS}) for key,label in CORNER_FIELDS]
+        if self.section in ('signals','overrides'):
+            from .logic_codes import display_row
+            return [display_row(r,self.panel.data.get('resolved',{}),self.section=='signals') for r in self.panel.data[self.section]]
         return self.panel.data[self.section]
 
     def refresh(self):
@@ -63,7 +69,10 @@ class TableEditor(ttk.Frame):
 
     def add(self):
         self.panel.flush()
-        self.panel.data[self.section].append({k:'' for k,_ in self.columns})
+        row = {k:'' for k,_ in self.columns}
+        if self.section in ('signals','overrides'):
+            row.update(radix='二进制', encoding='code')
+        self.panel.data[self.section].append(row)
         self.panel.changed()
         self.refresh()
         self.edit_cell(len(self.rows())-1, self.columns[0][0])
@@ -93,6 +102,8 @@ class TableEditor(ttk.Frame):
             self.edit_cell(int(self.tree.selection()[0]), self.columns[0][0])
 
     def edit_cell(self, index, field):
+        if field == 'width':
+            return
         if self.section == 'corners' and field == 'parameter':
             return
         if self.section in ('pins','msi_mappings') and field in ('module','direction','t2b_pin','status'):
@@ -120,9 +131,11 @@ class TableEditor(ttk.Frame):
             return
         options = self.panel.options(self.section,index,field)
         var = tk.StringVar(value=value)
-        widget = ttk.Combobox(self.tree,textvariable=var,values=options) if options else ttk.Entry(self.tree,textvariable=var)
+        widget = ttk.Combobox(self.tree,textvariable=var,values=options,state='readonly' if field=='radix' else 'normal') if options else ttk.Entry(self.tree,textvariable=var)
         widget.place(x=box[0],y=box[1],width=max(box[2],90),height=box[3])
         self.editor = (widget,var,index,field,value)
+        if self.section in ('signals','overrides') and field in CORNERS:
+            var.trace_add('write',lambda *args:self.validate_code(index,field,var.get()))
         widget.bind('<Return>',lambda e:self.flush())
         widget.bind('<FocusOut>',lambda e:self.flush())
         widget.bind('<<ComboboxSelected>>',lambda e:self.flush())
@@ -146,12 +159,33 @@ class TableEditor(ttk.Frame):
         if value != old:
             self.set_value(index,field,value)
 
+    def validate_code(self,index,field,value):
+        self.panel.generate_button.configure(state='disabled')
+        from .logic_codes import edit_code
+        try:
+            candidate = copy.deepcopy(self.panel.data[self.section][index])
+            edit_code(candidate,field,value,self.panel.data.get('resolved',{}),self.section=='signals')
+            self.edit_error.configure(text='')
+        except Exception as exc:
+            self.edit_error.configure(text='代码值错误：'+str(exc))
+
     def set_value(self,index,field,value):
+        self.edit_error.configure(text='')
         if self.section == 'corners':
             self.panel.data['corners'][field][CORNER_FIELDS[index][0]] = value.strip()
         else:
             row = self.panel.data[self.section][index]
-            row[field] = value if field=='body' else value.strip()
+            if self.section in ('signals','overrides') and (field in CORNERS or field=='radix'):
+                from .logic_codes import change_radix, edit_code
+                try:
+                    if field=='radix':
+                        change_radix(row,value,self.panel.data.get('resolved',{}),self.section=='signals')
+                    else:
+                        edit_code(row,field,value,self.panel.data.get('resolved',{}),self.section=='signals')
+                except Exception as exc:
+                    self.edit_error.configure(text='代码值错误：'+str(exc))
+            elif field!='width':
+                row[field] = value if field=='body' else value.strip()
             if self.section in ('pins','msi_mappings'):
                 row.update(status='MANUAL',fingerprint='')
         self.panel.changed()
@@ -286,6 +320,7 @@ class VNextPanel(ttk.Frame):
             key = CORNER_FIELDS[index][0]
             return ['FF','FS','SF','SS','TT'] if key=='process' else (['125','25','-40'] if key=='temperature' else [])
         row = data[section][index]
+        if field=='radix': return ['二进制','十进制','十六进制']
         if field=='generate_type': return ['DRV','RCV','BOTH']
         if field=='topology': return ['SE','DIFF']
         if field in ('io_domain','vih_domain'): return [r['domain'] for r in data['voltages']]
@@ -497,16 +532,8 @@ class VNextPanel(ttk.Frame):
         if not directory or not directory.is_dir():
             messagebox.showinfo('尚无输出','该 Case 尚未成功生成。',parent=self)
             return
-        window = tk.Toplevel(self)
-        window.title('生成文件：'+str(directory))
-        window.geometry('1000x650')
-        combo = ttk.Combobox(window,state='readonly',values=[p.name for p in sorted(directory.iterdir()) if p.is_file()])
-        combo.pack(fill='x')
-        text = self.textbox(window)
-        combo.bind('<<ComboboxSelected>>',lambda e:self.set_text(text,(directory/combo.get()).read_text(encoding='utf-8',errors='replace')))
-        if combo['values']:
-            combo.current(0)
-            combo.event_generate('<<ComboboxSelected>>')
+        from ..file_preview import CaseFilePreview
+        self.case_preview = CaseFilePreview(self, directory)
 
     def destroy(self):
         if self.pending:

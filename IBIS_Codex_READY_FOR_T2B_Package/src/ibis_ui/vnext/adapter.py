@@ -1,21 +1,30 @@
 from __future__ import annotations
 import copy
+from ibis_auto.errors import IbisError
 from .model import CORNERS, directions, parse_rons
 from ..errors import ProjectValidationError
 
 
-def effective_overrides(data, resolved):
+def effective_overrides(data, resolved, tolerate_invalid=False):
+    from .logic_codes import canonical_value
+    def value(row, corner, width):
+        try:
+            return canonical_value(row, corner, width)
+        except (ValueError, IbisError):
+            if not tolerate_invalid:
+                raise
+            return str(row.get(corner, ""))
     result = []
     for module in data['modules']:
         name = module['name']
         for s in resolved.get('msi',{}).get(name,[]):
             for d in directions(module):
                 for c in CORNERS:
-                    global_values = [r.get(c,'').strip() for r in data['signals'] if r.get('signal','').casefold()==s['name'].casefold() and r.get(c,'').strip()]
-                    local_values = [r.get(c,'').strip() for r in data['overrides'] if r.get('module')==name and r.get('direction')==d and r.get('signal','').casefold()==s['name'].casefold() and r.get(c,'').strip()]
-                    value = (local_values or global_values or [''])[0]
-                    if value:
-                        result.append(dict(module=name,direction=d,corner=c,signal=s['name'],value=value))
+                    global_values = [value(r,c,s['width']) for r in data['signals'] if r.get('signal','').casefold()==s['name'].casefold() and r.get(c,'').strip()]
+                    local_values = [value(r,c,s['width']) for r in data['overrides'] if r.get('module')==name and r.get('direction')==d and r.get('signal','').casefold()==s['name'].casefold() and r.get(c,'').strip()]
+                    chosen = (local_values or global_values or [''])[0]
+                    if chosen:
+                        result.append(dict(module=name,direction=d,corner=c,signal=s['name'],value=chosen))
     return result
 
 

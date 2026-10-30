@@ -5,8 +5,14 @@ import re
 from .errors import IbisError
 
 
+def normalize_logic_text(raw: str) -> str:
+    # Common IME/Word apostrophes are syntax-compatible, not a different radix.
+    value = (raw or "").strip().translate(str.maketrans({"‘": "'", "’": "'", "＇": "'", "ʼ": "'"}))
+    return re.sub(r"^(\d+)\s*'\s*([bBhHdD])\s*", r"\1'\2", value)
+
+
 def parse_logic(raw: str, module: str, signal: str, width: int) -> str:
-    value = (raw or "").strip()
+    value = normalize_logic_text(raw)
     if not value or value.upper() in {"X", "Z", "-"}:
         raise IbisError("INVALID_LOGIC_VALUE", f"模块 {module} 信号 {signal} 的 Value 非法：{raw!r}", "CASE")
     match = re.fullmatch(r"(\d+)'([bBhHdD])([0-9a-fA-F_]+)", value)

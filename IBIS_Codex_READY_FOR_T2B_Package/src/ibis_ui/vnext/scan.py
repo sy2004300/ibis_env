@@ -15,7 +15,7 @@ from ibis_auto.spf import parse as parse_spf
 from ibis_auto.values import parse_logic, impedance_map, signal_bits
 from ..configuration_review import append_diagnostics
 from ..working_templates import validate_template_text
-from .model import CORNERS, directions, parse_rons, validate_shape
+from .model import VERSION, CORNERS, directions, parse_rons, validate_shape
 
 STRENGTH = {'reg_txslice_pd[3:0]', 'reg_txslice_pu[3:0]'}
 
@@ -105,6 +105,7 @@ def msi_candidates(root, anchor=None):
 def precheck(original, builtin):
     validate_shape(original)
     data = copy.deepcopy(original)
+    data['schema_version'] = VERSION
     issues, resolved, roots, anchors = [], dict(spf={}, msi={}, templates={}, pdk={}, candidates=[]), {}, {}
     def issue(code, message, section='sources', row=0, field='', module='', direction='', corner='', location='', severity='BLOCKING'):
         issues.append(dict(severity=severity, code=code, message=str(message), section=section, row=row, field=field, module=module, direction=direction, corner=corner, location=str(location)))
@@ -470,7 +471,8 @@ def check_values(data, resolved, issue):
                     try:
                         if signal.casefold() in STRENGTH:
                             raise ValueError('普通信号覆盖不得修改 Ron→Code 阻抗控制信号')
-                        parse_logic(value,module,signal,found['width'])
+                        from .logic_codes import canonical_value
+                        canonical_value(row,c,found['width'])
                     except Exception as exc:
                         issue('SIGNAL_VALUE', exc,field,i,c,module,corner=c)
             if not count:
@@ -484,11 +486,16 @@ def check_values(data, resolved, issue):
     for module in modules:
         for d in directions(modules[module]):
             body = '\n'.join(r.get('body','') for r in data['appends'] if r.get('module')==module and r.get('direction')==d)
-            for level,msg in append_diagnostics(body,resolved['spf'].get(module,{}).get('pins',[])):
+            original = resolved['spf'].get(module,{}).get('pins',[])
+            aliases = {r.get('spf_pin','').casefold():r['t2b_pin'] for r in data['pins']
+                       if r.get('module')==module and r.get('direction')==d
+                       and r.get('status') in ('AUTO_MATCH','MANUAL') and r.get('spf_pin')}
+            effective_pins = [aliases.get(pin.casefold(),pin) for pin in original]
+            for level,msg in append_diagnostics(body,effective_pins):
                 issue('APPEND_SYNTAX',msg,'appends',field='body',module=module,direction=d,severity='BLOCKING' if level=='Error' else 'WARNING')
     # Validate effective inherited values, not just non-empty override cells.
     from .adapter import effective_overrides
-    overrides = effective_overrides(data, resolved)
+    overrides = effective_overrides(data, resolved, tolerate_invalid=True)
     for module, signals in resolved['msi'].items():
         for signal in signals:
             power = signal['power_domain']

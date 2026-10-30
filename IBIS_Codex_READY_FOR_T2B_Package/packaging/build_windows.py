@@ -18,7 +18,7 @@ PYINSTALLER_DIST = BUILD_ROOT / "pyinstaller-dist"
 PYINSTALLER_WORK = BUILD_ROOT / "pyinstaller-work"
 PACKAGE_INPUT = BUILD_ROOT / "package-input"
 DIST_ROOT = PROJECT_ROOT / "dist"
-OUTPUT_NAME = "IBIS_Automation_Windows_0_5_0"
+OUTPUT_NAME = "IBIS_Automation_Windows_0_5_1"
 OUTPUT_DIRECTORY = DIST_ROOT / OUTPUT_NAME
 OUTPUT_ARCHIVE = DIST_ROOT / f"{OUTPUT_NAME}.zip"
 
